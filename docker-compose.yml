@@ -1,0 +1,47 @@
+# =============================================================================
+# strongSwan IKEv2 VPN Server — Docker Compose
+# =============================================================================
+#
+# CRYPTO SUITE:
+#   IKE:      aes256-sha256-ecp384  (ECDH with P-384)
+#   ESP:      aes256-sha256-ecp384  (AES-256-CBC + HMAC-SHA2-256 + DH ECP384)
+#   Auth:     PSK (pre-shared key)
+#   Version:  IKEv2 ONLY
+#
+# COMPATIBILITY: RouterOS 6.49.x AND 7.x
+#
+# WHY network_mode: host?
+#   Docker cannot proxy IP protocol 50 (ESP). Host networking is required
+#   for native ESP traffic. NAT-T (UDP 4500) works as fallback behind NAT.
+#
+# FIREWALL (Oracle Cloud / iptables):
+#   • UDP 500   — IKE (key exchange)
+#   • UDP 4500  — NAT-T (ESP-in-UDP for NAT traversal)
+#   • Protocol 50 — ESP (native encrypted data channel)
+#
+# =============================================================================
+
+version: "3.8"
+
+services:
+  vpn-server:
+    image: strongx509/strongswan:latest
+    container_name: vpn-server
+    restart: unless-stopped
+
+    # CRITICAL: host network for ESP (protocol 50)
+    network_mode: host
+
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+
+    stdin_open: true
+    tty: true
+
+    volumes:
+      - ./server/swanctl:/etc/swanctl
+      - ./server/strongswan.conf:/etc/strongswan.conf
+
+    environment:
+      - STRONGSWAN_LOGLEVEL=3

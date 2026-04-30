@@ -1,0 +1,16 @@
+# Secrets & generated configs (NEVER commit these)
+.env
+server/swanctl/vpn.conf
+client/mikrotik.rsc
+
+# Logs
+logs/
+
+# OS / Editor
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Docker
+.docker/
