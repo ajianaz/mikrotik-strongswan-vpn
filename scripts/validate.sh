@@ -43,10 +43,10 @@ echo ""
 # ── Check 1: .env exists ──
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   pass ".env file found"
-  ((pass_count++))
+  ((pass_count++)) || true
 else
   fail ".env file not found at ${REPO_ROOT}"
-  ((fail_count++))
+  ((fail_count++)) || true
   echo ""
   echo "  Fix: cp .env.example .env && nano .env"
   echo ""
@@ -64,10 +64,10 @@ set +a
 IP_REGEX='^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$'
 if [[ -n "${SERVER_PUBLIC_IP:-}" ]] && echo "${SERVER_PUBLIC_IP}" | grep -qE "${IP_REGEX}"; then
   pass "SERVER_PUBLIC_IP = ${SERVER_PUBLIC_IP}"
-  ((pass_count++))
+  ((pass_count++)) || true
 else
   fail "SERVER_PUBLIC_IP invalid or missing (current: '${SERVER_PUBLIC_IP:-<unset>}')"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Check 3: VPN_PSK (length + entropy) ──
@@ -82,42 +82,42 @@ length = len(psk)
 entropy = -sum((c / length) * math.log2(c / length) for c in counts.values())
 print(f'{entropy:.4f}')
 ")"
-  if (( psk_len >= 24 )) && (( $(echo "${psk_entropy} >= 3.0" | bc -l) )); then
+  if (( psk_len >= 24 )) && python3 -c "exit(0 if float('${psk_entropy}') >= 3.0 else 1)"; then
     pass "VPN_PSK length=${psk_len}, entropy=${psk_entropy}"
-    ((pass_count++))
+    ((pass_count++)) || true
   else
     reasons=()
-    (( psk_len < 24 )) && reasons+=("length ${psk_len} < 24")
-    (( $(echo "${psk_entropy} < 3.0" | bc -l) )) && reasons+=("entropy ${psk_entropy} < 3.0")
+    (( psk_len < 24 )) && reasons+=("length ${psk_len} < 24") || true
+    (( $(python3 -c "print(1 if float('${psk_entropy}') < 3.0 else 0)") )) && reasons+=("entropy ${psk_entropy} < 3.0") || true
     warn "VPN_PSK weak: ${reasons[*]} — run: bash scripts/generate-psk.sh"
-    ((warn_count++))
+    ((warn_count++)) || true
   fi
 else
   fail "VPN_PSK is not set"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Check 4: CLIENT_LAN_SUBNET ──
 CIDR_REGEX='^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}/(1[6-9]|2[0-8])$'
 if [[ -n "${CLIENT_LAN_SUBNET:-}" ]] && echo "${CLIENT_LAN_SUBNET}" | grep -qE "${CIDR_REGEX}"; then
   pass "CLIENT_LAN_SUBNET = ${CLIENT_LAN_SUBNET}"
-  ((pass_count++))
+  ((pass_count++)) || true
 else
   fail "CLIENT_LAN_SUBNET invalid (must be CIDR /16-/28, current: '${CLIENT_LAN_SUBNET:-<unset>}')"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Check 5: CLIENT_FQDN (optional) ──
 FQDN_REGEX='^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
 if [[ -z "${CLIENT_FQDN:-}" ]]; then
   warn "CLIENT_FQDN is empty (optional, but recommended for multi-site)"
-  ((warn_count++))
+  ((warn_count++)) || true
 elif echo "${CLIENT_FQDN}" | grep -qE "${FQDN_REGEX}"; then
   pass "CLIENT_FQDN = ${CLIENT_FQDN}"
-  ((pass_count++))
+  ((pass_count++)) || true
 else
   fail "CLIENT_FQDN invalid RFC 1123 (current: '${CLIENT_FQDN}')"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Check 6: VPN_POOL_SUBNET (valid + no overlap) ──
@@ -134,23 +134,23 @@ except Exception:
 ")"
   if [[ "${overlap}" == "ok" ]]; then
     pass "VPN_POOL_SUBNET = ${VPN_POOL_SUBNET} (no overlap)"
-    ((pass_count++))
+    ((pass_count++)) || true
   else
     fail "VPN_POOL_SUBNET overlaps CLIENT_LAN_SUBNET (${VPN_POOL_SUBNET} vs ${CLIENT_LAN_SUBNET:-?})"
-    ((fail_count++))
+    ((fail_count++)) || true
   fi
 else
   fail "VPN_POOL_SUBNET invalid (current: '${VPN_POOL_SUBNET:-<unset>}')"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Check 7: Docker daemon ──
 if docker info >/dev/null 2>&1; then
   pass "Docker daemon is running"
-  ((pass_count++))
+  ((pass_count++)) || true
 else
   fail "Docker daemon is not running or not accessible"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Check 8: UDP 500 & 4500 available ──
@@ -163,10 +163,10 @@ if ss -uln 2>/dev/null | grep -q ':4500 ' || ss -uln 2>/dev/null | grep -q ':450
 fi
 if [[ ${#port_issues[@]} -eq 0 ]]; then
   pass "Ports UDP 500 & UDP 4500 are available"
-  ((pass_count++))
+  ((pass_count++)) || true
 else
   fail "Ports already in use: ${port_issues[*]}"
-  ((fail_count++))
+  ((fail_count++)) || true
 fi
 
 # ── Summary ──
