@@ -8,11 +8,12 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /vpn-manager ./cmd/server
 
-# Stage 2: Runtime (scratch — minimal, ~15MB binary)
-FROM scratch
+# Stage 2: Runtime (alpine — minimal OS for healthcheck and debugging)
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates wget
 
 COPY --from=builder /vpn-manager /app/vpn-manager
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 EXPOSE 8080
 
