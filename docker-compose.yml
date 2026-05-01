@@ -25,7 +25,7 @@ version: "3.8"
 
 services:
   vpn-server:
-    image: strongx509/strongswan:latest
+    image: strongx509/strongswan:ubuntu24
     container_name: vpn-server
     restart: unless-stopped
 
@@ -34,14 +34,17 @@ services:
 
     cap_add:
       - NET_ADMIN
-    privileged: true
-
-    stdin_open: true
-    tty: true
 
     volumes:
       - ./server/swanctl:/etc/swanctl
-      - ./server/strongswan.conf:/etc/strongswan.conf
+      - ./server/strongswan.conf:/etc/strongswan.conf:ro
 
     environment:
-      - STRONGSWAN_LOGLEVEL=3
+      - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
+
+    healthcheck:
+      test: ["CMD-SHELL", "swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

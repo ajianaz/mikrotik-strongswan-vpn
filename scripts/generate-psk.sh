@@ -18,11 +18,11 @@ echo ""
 # Generate 32-byte base64 PSK
 PSK="$(openssl rand -base64 32)"
 
-# Calculate entropy
-entropy="$(python3 -c "
-import math
+# Calculate entropy (safe: PSK passed via env, not interpolated)
+entropy="$(VPN_PSK_VAL="${PSK}" python3 -c "
+import math, os
 from collections import Counter
-psk = '${PSK}'
+psk = os.environ['VPN_PSK_VAL']
 counts = Counter(psk)
 length = len(psk)
 entropy = -sum((c / length) * math.log2(c / length) for c in counts.values())
@@ -36,9 +36,27 @@ echo ""
 echo "  Length: ${#PSK} characters"
 echo "  Entropy: ${entropy} bits/char"
 echo ""
-echo -e "  ${YELLOW}Add this to your .env file:${NC}"
-echo ""
-echo "  VPN_PSK=${PSK}"
-echo ""
-echo -e "  ${YELLOW}Or run: echo 'VPN_PSK=${PSK}' >> .env${NC}"
+
+# Auto-append to .env if it exists in repo root
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+while [[ ! -f "${REPO_ROOT}/docker-compose.yml" ]]; do
+  REPO_ROOT="$(dirname "${REPO_ROOT}")"
+  if [[ "${REPO_ROOT}" == "/" ]]; then break; fi
+done
+
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  # Check if VPN_PSK already exists in .env
+  if grep -q '^VPN_PSK=' "${REPO_ROOT}/.env"; then
+    echo -e "  ${YELLOW}VPN_PSK already exists in .env — update manually:${NC}"
+    echo -e "  ${YELLOW}  nano ${REPO_ROOT}/.env${NC}"
+  else
+    echo "VPN_PSK=${PSK}" >> "${REPO_ROOT}/.env"
+    chmod 600 "${REPO_ROOT}/.env"
+    echo -e "  ${GREEN}Appended VPN_PSK to ${REPO_ROOT}/.env (chmod 600)${NC}"
+  fi
+else
+  echo -e "  ${YELLOW}No .env found. Create one:${NC}"
+  echo "  cp .env.example .env"
+  echo "  echo 'VPN_PSK=${PSK}' >> .env"
+fi
 echo ""
