@@ -73,22 +73,22 @@ fi
 # ── Check 3: VPN_PSK (length + entropy) ──
 if [[ -n "${VPN_PSK:-}" ]]; then
   psk_len="${#VPN_PSK}"
-  psk_entropy="$(python3 -c "
-import math
+  psk_entropy="$(VPN_PSK="${VPN_PSK}" python3 -c "
+import math, os
 from collections import Counter
-psk = '${VPN_PSK}'
+psk = os.environ['VPN_PSK']
 counts = Counter(psk)
 length = len(psk)
 entropy = -sum((c / length) * math.log2(c / length) for c in counts.values())
 print(f'{entropy:.4f}')
 ")"
-  if (( psk_len >= 24 )) && python3 -c "exit(0 if float('${psk_entropy}') >= 3.0 else 1)"; then
+  if (( psk_len >= 24 )) && python3 -c "import sys; exit(0 if float('${psk_entropy}') >= 3.0 else 1)"; then
     pass "VPN_PSK length=${psk_len}, entropy=${psk_entropy}"
     ((pass_count++)) || true
   else
     reasons=()
     (( psk_len < 24 )) && reasons+=("length ${psk_len} < 24") || true
-    (( $(python3 -c "print(1 if float('${psk_entropy}') < 3.0 else 0)") )) && reasons+=("entropy ${psk_entropy} < 3.0") || true
+    (( $(python3 -c "import sys; print(1 if float('${psk_entropy}') < 3.0 else 0)") )) && reasons+=("entropy ${psk_entropy} < 3.0") || true
     warn "VPN_PSK weak: ${reasons[*]} — run: bash scripts/generate-psk.sh"
     ((warn_count++)) || true
   fi

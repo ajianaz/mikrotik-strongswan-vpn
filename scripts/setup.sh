@@ -62,6 +62,25 @@ echo "  CLIENT_FQDN = ${CLIENT_FQDN}"
 echo "  VPN_PSK = $(echo "${VPN_PSK}" | head -c 8)...$(echo "${VPN_PSK}" | tail -c 5)"
 echo ""
 
+# ── Sanitize inputs before sed (prevent injection) ──
+sanitize() {
+  local var_name="$1" var_value="$2" pattern="$3" description="$4"
+  if ! echo "${var_value}" | grep -qE "${pattern}"; then
+    fail "${var_name} contains invalid characters (${description})"
+    exit 1
+  fi
+}
+
+sanitize "SERVER_PUBLIC_IP" "${SERVER_PUBLIC_IP}" '^[0-9.]+$' "IP only"
+sanitize "VPN_POOL_SUBNET" "${VPN_POOL_SUBNET}" '^[0-9./]+$' "CIDR only"
+sanitize "CLIENT_LAN_SUBNET" "${CLIENT_LAN_SUBNET}" '^[0-9./]+$' "CIDR only"
+sanitize "CLIENT_FQDN" "${CLIENT_FQDN}" '^[a-zA-Z0-9._-]+$' "FQDN chars only"
+# PSK: allow base64 chars + common special chars, block shell metacharacters
+sanitize "VPN_PSK" "${VPN_PSK}" '^[A-Za-z0-9+/=@._-]+$' "base64-safe chars only"
+
+pass "Input sanitization passed"
+echo ""
+
 # ── Generate server config ──
 TEMPLATE_SERVER="${REPO_ROOT}/server/swanctl/vpn.conf.example"
 OUTPUT_SERVER="${REPO_ROOT}/server/swanctl/vpn.conf"

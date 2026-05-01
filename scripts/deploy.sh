@@ -51,8 +51,21 @@ cd "${REPO_ROOT}"
 docker compose up -d --build
 
 echo ""
-echo "  Waiting for container to initialize..."
-sleep 3
+echo "  Waiting for charon daemon to initialize..."
+MAX_WAIT=30
+elapsed=0
+while (( elapsed < MAX_WAIT )); do
+  if docker exec vpn-server swanctl --stats >/dev/null 2>&1; then
+    pass "charon daemon ready (${elapsed}s)"
+    break
+  fi
+  sleep 2
+  (( elapsed += 2 )) || true
+done
+
+if (( elapsed >= MAX_WAIT )); then
+  warn "charon daemon not ready after ${MAX_WAIT}s — checking anyway"
+fi
 
 # ── Verify ──
 echo ""
