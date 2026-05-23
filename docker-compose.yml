@@ -25,7 +25,9 @@ version: "3.8"
 
 services:
   vpn-server:
-    image: strongx509/strongswan:ubuntu24
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     container_name: vpn-server
     restart: unless-stopped
 
@@ -38,6 +40,7 @@ services:
     volumes:
       # Shared swanctl config — vpn-manager writes here, vpn-server reads here
       - vpn-configs:/etc/swanctl
+      # strongswan.conf copied during build, mount for runtime overrides
       - ./server/strongswan.conf:/etc/strongswan.conf:ro
 
     environment:
