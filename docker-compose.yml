@@ -21,6 +21,7 @@
 #
 # =============================================================================
 
+# docker-compose.yml — MikroTik strongSwan VPN
 version: "3.8"
 
 services:
