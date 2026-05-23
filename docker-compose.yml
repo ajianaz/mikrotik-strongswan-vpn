@@ -1,5 +1,5 @@
 # =============================================================================
-# strongSwan IKEv2 VPN Server — Docker Compose
+# strongSwan IKEv2 VPN Server + VPN Manager API — Docker Compose
 # =============================================================================
 #
 # CRYPTO SUITE:
@@ -25,7 +25,9 @@ version: "3.8"
 
 services:
   vpn-server:
-    image: strongx509/strongswan:ubuntu24
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     container_name: vpn-server
     restart: unless-stopped
 
@@ -36,7 +38,9 @@ services:
       - NET_ADMIN
 
     volumes:
-      - ./server/swanctl:/etc/swanctl
+      # Shared swanctl config — vpn-manager writes here, vpn-server reads here
+      - vpn-configs:/etc/swanctl
+      # strongswan.conf copied during build, mount for runtime overrides
       - ./server/strongswan.conf:/etc/strongswan.conf:ro
 
     environment:
@@ -48,3 +52,40 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  vpn-manager:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: vpn-manager
+    restart: unless-stopped
+
+    volumes:
+      # Same shared volume as vpn-server — writes swanctl configs here
+      - vpn-configs:/etc/swanctl
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    environment:
+      - DB_URL=${DB_URL}
+      - API_KEY=${API_KEY}
+      - LISTEN=${LISTEN:-:8080}
+      - VPN_CONTAINER=vpn-server
+      - VPN_CONFIG_DIR=/etc/swanctl/conf.d
+      - VPN_SECRET_FILE=/etc/swanctl/secret
+
+    ports:
+      - "${LISTEN:-8080}"
+
+    depends_on:
+      vpn-server:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  vpn-configs:
