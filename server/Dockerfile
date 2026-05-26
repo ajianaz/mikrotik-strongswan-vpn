@@ -81,6 +81,5 @@ EXPOSE 500/udp 4500/udp
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
     CMD pgrep -x charon >/dev/null
 
-# Start charon — foreground mode with debug logging.
-# DEBUG: --debug-all <level> (level 4 = most verbose)
-ENTRYPOINT ["/usr/local/bin/charon", "--debug-all", "4"]
+# Start charon — foreground mode, no extra flags.
+ENTRYPOINT ["/usr/local/bin/charon"]
