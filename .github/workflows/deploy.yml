@@ -3,12 +3,12 @@ name: Deploy to Server
 on:
   workflow_run:
     workflows: ["Build & Push Docker Images"]
-    branches: [develop]
+    branches: [develop, main]
     types: [completed]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-server
+  group: deploy-${{ github.event.workflow_run.head_branch || 'manual' }}
   cancel-in-progress: false
 
 permissions:
@@ -16,9 +16,8 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy to OCI server
+    name: Deploy (${{ github.event.workflow_run.head_branch || 'manual' }})
     runs-on: ubuntu-latest
-    environment: OCI
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success')
@@ -32,6 +31,18 @@ jobs:
           env-slug: "prod"
           infra-url: "https://infisical.ajianaz.dev"
 
+      - name: Determine deploy path
+        id: path
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          if [ "$BRANCH" = "main" ]; then
+            echo "target=${{ env.DEPLOY_PATH_PROD }}" >> $GITHUB_OUTPUT
+            echo "Deploying to PROD"
+          else
+            echo "target=${{ env.DEPLOY_PATH_DEV }}" >> $GITHUB_OUTPUT
+            echo "Deploying to DEV"
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
@@ -40,7 +51,7 @@ jobs:
           key: ${{ env.DEPLOY_SSH_KEY }}
           port: ${{ env.DEPLOY_PORT }}
           script: |
-            cd ${{ secrets.DEPLOY_PATH }}
+            cd ${{ steps.path.outputs.target }}
 
             echo "=== Pulling latest images ==="
             docker compose pull
