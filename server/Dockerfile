@@ -15,18 +15,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Also registered via ldconfig (below) as belt-and-suspenders.
 ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 
-# Install strongSwan — explicit packages (not metapackage).
-#
-# Ubuntu 24.04 splits strongSwan into many packages:
-#   strongswan              = metapackage (docs only on ARM!)
-#   libstrongswan          = CORE: libstrongswan.so + crypto plugins (SHA1, AES, NONCE, RNG, etc.)
-#   strongswan-charon       = /usr/lib/ipsec/charon binary + default config
-#   strongswan-libcharon    = libcharon.so + IKE plugins (socket-default, updown, etc.)
-#   strongswan-swanctl      = /usr/sbin/swanctl + vici plugin
-#   strongswan-pki          = pki tool for cert management
-#   libcharon-extra-plugins = additional plugins (EAP, RADIUS, ECP384, etc.)
-#
-# We install explicit binary packages, NOT the metapackage.
+# Install strongSwan — core packages only (no extra plugins).
+# libcharon-extra-plugins provides EAP, RADIUS, TNC etc. which cause segfault.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libstrongswan \
@@ -34,7 +24,6 @@ RUN apt-get update \
         strongswan-libcharon \
         strongswan-swanctl \
         strongswan-pki \
-        libcharon-extra-plugins \
         iproute2 \
         iptables \
     && apt-get clean \
@@ -48,24 +37,6 @@ RUN echo "/usr/lib/ipsec" > /etc/ld.so.conf.d/libstrongswan.conf \
 
 # Remove all package-installed plugin config files.
 RUN rm -rf /etc/strongswan.d/
-
-# Remove unwanted plugin .so files.
-# strongSwan 5.9.13 on ARM ignores load_modular=no and loads ALL plugins
-# found in the plugin directory. Unwanted plugins cause segfault (exit 139).
-# Keep only plugins required for IKEv2 PSK + swanctl management.
-RUN cd /usr/lib/ipsec/plugins \
-    && ls *.so | while read f; do \
-        case "$f" in \
-            libstrongswan-aes-*|libstrongswan-sha1-*|libstrongswan-sha2-*|libstrongswan-sha384-*|libstrongswan-sha512-*| \
-            libstrongswan-random-*|libstrongswan-nonce-*|libstrongswan-hmac-*|libstrongswan-mgf1-*| \
-            libstrongswan-pubkey-*|libstrongswan-pkcs1-*|libstrongswan-x509-*| \
-            libstrongswan-kernel-netlink-*|libstrongswan-socket-default-*| \
-            libstrongswan-updown-*|libstrongswan-vici-*| \
-            libstrongswan-xcbc-*|libstrongswan-kdf-*| \
-            libcharon-*) ;; \
-            *) rm -f "$f" ;; \
-        esac \
-    done
 
 # Copy dummy updown script (charon calls on SA events, default does nothing)
 COPY updown.sh /usr/lib/ipsec/updown.sh
