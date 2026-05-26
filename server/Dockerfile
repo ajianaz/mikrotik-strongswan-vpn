@@ -14,7 +14,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Ubuntu 24.04 splits strongSwan into many packages:
 #   strongswan              = metapackage (docs only on ARM!)
 #   libstrongswan          = CORE: libstrongswan.so + crypto plugins (SHA1, AES, NONCE, RNG, etc.)
-#                            CRITICAL: without this, charon fails "unmet dependency: HASH_SHA1"
 #   strongswan-charon       = /usr/lib/ipsec/charon binary + default config
 #   strongswan-libcharon    = libcharon.so + IKE plugins (socket-default, updown, etc.)
 #   strongswan-swanctl      = /usr/sbin/swanctl + vici plugin
@@ -34,6 +33,12 @@ RUN apt-get update \
         iptables \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Register /usr/lib/ipsec in the dynamic linker path.
+# Without this, charon can't dlopen() libstrongswan.so and plugin .so files,
+# causing: "unmet dependency: HASH_SHA1" → "initialization failed".
+RUN echo "/usr/lib/ipsec" > /etc/ld.so.conf.d/libstrongswan.conf \
+    && ldconfig
 
 # Find charon binary and create symlink to /usr/local/bin.
 # Ubuntu 24.04 ARM64: /usr/lib/ipsec/charon (no /usr/sbin wrapper)
