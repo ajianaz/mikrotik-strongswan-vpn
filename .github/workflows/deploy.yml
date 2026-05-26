@@ -3,33 +3,55 @@ name: Deploy to Server
 on:
   workflow_run:
     workflows: ["Build & Push Docker Images"]
-    branches: [develop]
+    branches: [develop, main]
     types: [completed]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-server
+  group: deploy-${{ github.event.workflow_run.head_branch || 'manual' }}
   cancel-in-progress: false
+
+permissions:
+  id-token: write  # Required for Infisical OIDC
 
 jobs:
   deploy:
-    name: Deploy to OCI server
+    name: Deploy (${{ github.event.workflow_run.head_branch || 'manual' }})
     runs-on: ubuntu-latest
-    environment: OCI
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success')
     steps:
+      - name: Fetch shared secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.9
+        with:
+          method: "oidc"
+          identity-id: "6bd2b8d8-a9a3-4331-8b37-bf2764fc320b"
+          project-slug: "github-actions"
+          env-slug: "prod"
+          infra-url: "https://infisical.ajianaz.dev"
+
+      - name: Determine deploy path
+        id: path
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          if [ "$BRANCH" = "main" ]; then
+            echo "target=${{ secrets.DEPLOY_PATH_PROD }}" >> $GITHUB_OUTPUT
+            echo "Deploying to PROD"
+          else
+            echo "target=${{ secrets.DEPLOY_PATH_DEV }}" >> $GITHUB_OUTPUT
+            echo "Deploying to DEV"
+          fi
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          port: ${{ secrets.DEPLOY_PORT }}
+          host: ${{ env.DEPLOY_HOST }}
+          username: ${{ env.DEPLOY_USER }}
+          key: ${{ env.DEPLOY_SSH_KEY }}
+          port: ${{ env.DEPLOY_PORT }}
           script: |
-            echo "=== Deploying VPN Manager ==="
-            cd ${{ secrets.DEPLOY_PATH }}
+            cd ${{ steps.path.outputs.target }}
 
             echo "=== Pulling latest images ==="
             docker compose pull
