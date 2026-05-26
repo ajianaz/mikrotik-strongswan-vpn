@@ -44,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
     CMD swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1
 
 # Start charon (swanctl backend, not the legacy ipsec starter)
-ENTRYPOINT ["charon-systemd"]
+ENTRYPOINT ["charon"]
