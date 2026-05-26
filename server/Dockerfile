@@ -26,6 +26,13 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Verify charon binary location — Ubuntu 24.04 may place it
+# at /usr/sbin/charon, /usr/lib/ipsec/charon, or /usr/libexec/ipsec/charon
+RUN CHARON_BIN=$(find / -name 'charon' -type f -executable 2>/dev/null | head -1) \
+    && if [ -z "$CHARON_BIN" ]; then echo "ERROR: charon binary not found" && exit 1; fi \
+    && ln -sf "$CHARON_BIN" /usr/local/bin/charon \
+    && echo "Linked charon: $CHARON_BIN -> /usr/local/bin/charon"
+
 # swanctl config directory
 RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki \
     && touch /etc/swanctl/secret \
@@ -43,5 +50,5 @@ EXPOSE 500/udp 4500/udp
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
     CMD swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1
 
-# Start charon (swanctl backend, not the legacy ipsec starter)
-ENTRYPOINT ["charon"]
+# Use /usr/local/bin/charon which is a symlink to the actual binary
+ENTRYPOINT ["/usr/local/bin/charon"]
