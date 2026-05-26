@@ -50,5 +50,7 @@ EXPOSE 500/udp 4500/udp
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=10s \
     CMD swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1
 
-# Use /usr/local/bin/charon which is a symlink to the actual binary
-ENTRYPOINT ["/usr/local/bin/charon"]
+# Start charon in foreground mode — required for Docker (no init system).
+# Without -T, charon daemonizes and the container exits immediately (code 66).
+# --debug-all is optional; remove for quieter logs in production.
+ENTRYPOINT ["/usr/local/bin/charon", "-T"]
