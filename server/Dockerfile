@@ -58,6 +58,29 @@ RUN CHARON_BIN="" \
         done; \
     done
 
+# DEBUG: Check charon linking details
+RUN apt-get update && apt-get install -y --no-install-recommends binutils python3-minimal \
+    && echo "=== RPATH/RUNPATH ===" \
+    && readelf -d /usr/local/bin/charon | grep -E "(RPATH|RUNPATH)" || echo "NO RPATH/RUNPATH" \
+    && echo "=== NEEDED libs ===" \
+    && readelf -d /usr/local/bin/charon | grep NEEDED \
+    && echo "=== ldd ===" \
+    && ldd /usr/local/bin/charon 2>&1 || true \
+    && echo "=== ldconfig strongswan ===" \
+    && ldconfig -p | grep strongswan \
+    && echo "=== dlopen test ===" \
+    && python3 -c "
+import ctypes, ctypes.util
+lib = ctypes.util.find_library('strongswan')
+print(f'find_library: {lib}')
+try:
+    ctypes.CDLL('/usr/lib/ipsec/libstrongswan.so')
+    print('OK: dlopen libstrongswan.so')
+except Exception as e:
+    print(f'FAIL: {e}')
+" 2>&1 \
+    && apt-get purge -y binutils python3-minimal && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
 # swanctl config directory
 RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki \
     && touch /etc/swanctl/secret \
