@@ -1,5 +1,5 @@
 # =============================================================================
-# strongSwan IKEv2 VPN Server + VPN Manager API — Docker Compose
+# strongSwan IKEv2 VPN Server + VPN Manager API + PostgreSQL — Docker Compose
 # =============================================================================
 #
 # CRYPTO SUITE:
@@ -25,7 +25,27 @@
 version: "3.8"
 
 services:
+  # ── PostgreSQL ─────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: vpn-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-vpnuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-vpnmgr}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpnuser} -d ${POSTGRES_DB:-vpnmgr}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── strongSwan VPN Server ──────────────────────────────────────────────
   vpn-server:
+    image: ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-server:develop
     build:
       context: ./server
       dockerfile: Dockerfile
@@ -54,7 +74,9 @@ services:
       retries: 3
       start_period: 10s
 
+  # ── VPN Manager API ────────────────────────────────────────────────────
   vpn-manager:
+    image: ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-manager:develop
     build:
       context: ./api
       dockerfile: Dockerfile
@@ -67,7 +89,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
     environment:
-      - DB_URL=${DB_URL}
+      - DB_URL=postgres://${POSTGRES_USER:-vpnuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vpnmgr}?sslmode=disable
       - API_KEY=${API_KEY}
       - LISTEN=${LISTEN:-:8080}
       - VPN_CONTAINER=vpn-server
@@ -78,6 +100,8 @@ services:
       - "${LISTEN:-8080}"
 
     depends_on:
+      postgres:
+        condition: service_healthy
       vpn-server:
         condition: service_healthy
 
@@ -90,3 +114,4 @@ services:
 
 volumes:
   vpn-configs:
+  postgres-data:
