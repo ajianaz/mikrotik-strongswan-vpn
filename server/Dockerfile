@@ -9,6 +9,11 @@ FROM ubuntu:24.04
 # Prevent interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Tell the dynamic linker where to find strongSwan libraries.
+# Without this, charon can't dlopen() libstrongswan.so and plugin .so files,
+# causing: "unmet dependency: HASH_SHA1" → "initialization failed".
+ENV LD_LIBRARY_PATH=/usr/lib/ipsec
+
 # Install strongSwan — explicit packages (not metapackage).
 #
 # Ubuntu 24.04 splits strongSwan into many packages:
