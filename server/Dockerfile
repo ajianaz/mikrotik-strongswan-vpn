@@ -83,3 +83,4 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
 
 # Start charon — ELF binary stays in foreground by default.
 ENTRYPOINT ["/usr/local/bin/charon"]
+# Build trigger 1779793126
