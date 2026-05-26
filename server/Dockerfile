@@ -9,36 +9,31 @@ FROM ubuntu:24.04
 # Prevent interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install strongSwan + swanctl + utilities
-# - strongswan: core IKEv2 daemon (charon)
-# - strongswan-swanctl: modern swanctl CLI (replaces ipsec)
-# - strongswan-pki: for certificate management
-# - libstrongswan-plugins: CORE crypto plugins (SHA1, AES, NONCE, HMAC, DH, etc.)
-#   CRITICAL: without this, charon fails with "unmet dependency: HASH_SHA1"
-# - libcharon-extra-plugins: additional crypto (ECP384 DH group, etc.)
-# - iproute2: ip / ss utilities for debugging
+# Install strongSwan — explicit packages (not metapackage).
+#
+# Ubuntu 24.04 splits strongSwan into many packages:
+#   strongswan              = metapackage (docs only on ARM!)
+#   strongswan-charon       = /usr/lib/ipsec/charon binary + default config
+#   strongswan-libcharon    = libcharon.so + core plugins (socket-default, updown, etc.)
+#   strongswan-swanctl      = /usr/sbin/swanctl + vici plugin
+#   strongswan-pki          = pki tool for cert management
+#   libcharon-extra-plugins = additional plugins (EAP, RADIUS, ECP384, etc.)
+#
+# We install explicit binary packages, NOT the metapackage.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        strongswan \
+        strongswan-charon \
+        strongswan-libcharon \
         strongswan-swanctl \
         strongswan-pki \
-        libstrongswan-plugins \
         libcharon-extra-plugins \
         iproute2 \
         iptables \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Debug: show where plugins actually live on this architecture
-RUN echo "=== Plugin directory scan ===" \
-    && find /usr/lib* -name "libstrongswan-*" -o -name "libcharon-*" 2>/dev/null | head -30 \
-    && echo "=== ipsec dir scan ===" \
-    && find /usr -type d -name "ipsec" 2>/dev/null \
-    && echo "=== charon binary ===" \
-    && find /usr -name "charon" -type f 2>/dev/null
-
 # Find charon binary and create symlink to /usr/local/bin.
-# Ubuntu 24.04 ARM64: /usr/lib/ipsec/charon (binary only, no /usr/sbin wrapper)
+# Ubuntu 24.04 ARM64: /usr/lib/ipsec/charon (no /usr/sbin wrapper)
 RUN CHARON_BIN="" \
     && for p in /usr/lib/ipsec/charon /usr/libexec/ipsec/charon /usr/lib64/ipsec/charon; do \
         if [ -f "$p" ]; then CHARON_BIN="$p"; break; fi; \
