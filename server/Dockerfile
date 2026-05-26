@@ -1,4 +1,4 @@
-# Custom strongSwan image — ARM (aarch64) & AMD64 compatible
+# Custom strongSwan image — ARM (aarch64) focused
 # Replaces: strongx509/strongswan:ubuntu24 (amd64 only)
 #
 # Build:  docker build -t vpn-server ./server
@@ -12,27 +12,33 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install strongSwan + swanctl + utilities
 # - strongswan: core IKEv2 daemon (charon)
 # - strongswan-swanctl: modern swanctl CLI (replaces ipsec)
-# - strongswan-pki: optional, for future certificate support
-# - libcharon-plugins: CORE crypto plugins (SHA1, AES, NONCE, HMAC, etc.)
+# - strongswan-pki: for certificate management
+# - libstrongswan-plugins: CORE crypto plugins (SHA1, AES, NONCE, HMAC, DH, etc.)
 #   CRITICAL: without this, charon fails with "unmet dependency: HASH_SHA1"
-# - libcharon-extra-plugins: ECP384 DH group + additional crypto
+# - libcharon-extra-plugins: additional crypto (ECP384 DH group, etc.)
 # - iproute2: ip / ss utilities for debugging
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         strongswan \
         strongswan-swanctl \
         strongswan-pki \
-        libcharon-plugins \
+        libstrongswan-plugins \
         libcharon-extra-plugins \
         iproute2 \
         iptables \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Debug: show where plugins actually live on this architecture
+RUN echo "=== Plugin directory scan ===" \
+    && find /usr/lib* -name "libstrongswan-*" -o -name "libcharon-*" 2>/dev/null | head -30 \
+    && echo "=== ipsec dir scan ===" \
+    && find /usr -type d -name "ipsec" 2>/dev/null \
+    && echo "=== charon binary ===" \
+    && find /usr -name "charon" -type f 2>/dev/null
+
 # Find charon binary and create symlink to /usr/local/bin.
-# Ubuntu 24.04 layout differs by architecture:
-#   AMD64: /usr/sbin/charon (wrapper) + /usr/lib/ipsec/charon (binary)
-#   ARM64: /usr/lib/ipsec/charon (binary only, no /usr/sbin wrapper)
+# Ubuntu 24.04 ARM64: /usr/lib/ipsec/charon (binary only, no /usr/sbin wrapper)
 RUN CHARON_BIN="" \
     && for p in /usr/lib/ipsec/charon /usr/libexec/ipsec/charon /usr/lib64/ipsec/charon; do \
         if [ -f "$p" ]; then CHARON_BIN="$p"; break; fi; \
