@@ -8,6 +8,10 @@ FROM ubuntu:24.04
 
 # Prevent interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
+# Tell charon where to find plugins and config.
+# Required when running the ELF binary directly (bypassing wrapper scripts).
+ENV CHARON_PLUGINS_DIR=/usr/lib/ipsec/plugins
+ENV STRONGSWAN_CONF=/etc/strongswan.conf
 
 # Install strongSwan + swanctl + utilities
 # - strongswan: core IKEv2 daemon (charon)
