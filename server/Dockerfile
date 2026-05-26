@@ -82,5 +82,5 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
     CMD pgrep -x charon >/dev/null
 
 # Start charon — foreground mode with debug logging.
-# DEBUG: use --debug-all for verbose output (will revert after fixing)
-ENTRYPOINT ["/usr/local/bin/charon", "--debug-all"]
+# DEBUG: --debug-all <level> (level 4 = most verbose)
+ENTRYPOINT ["/usr/local/bin/charon", "--debug-all", "4"]
