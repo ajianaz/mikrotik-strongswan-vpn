@@ -29,7 +29,7 @@ jobs:
           identity-id: "6bd2b8d8-a9a3-4331-8b37-bf2764fc320b"
           project-slug: "github-actions"
           env-slug: "prod"
-          infra-url: "https://infisical.ajianaz.dev"
+          domain: "https://infisical.ajianaz.dev"
 
       - name: Determine deploy path
         id: path
