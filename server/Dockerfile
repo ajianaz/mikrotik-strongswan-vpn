@@ -61,6 +61,27 @@ RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki \
 # Copy charon daemon config (read-only)
 COPY strongswan.conf /etc/strongswan.conf
 
+# VERIFY: Ensure critical plugin files exist after COPY.
+# This catches issues where our config overwrites package defaults.
+RUN echo "=== DEBUG: Verify strongSwan installation ===" \
+    && echo "--- /etc/strongswan.d/charon/ ---" \
+    && ls -la /etc/strongswan.d/charon/ \
+    && echo "--- sha1.conf ---" \
+    && cat /etc/strongswan.d/charon/sha1.conf \
+    && echo "--- nonce.conf ---" \
+    && cat /etc/strongswan.d/charon/nonce.conf \
+    && echo "--- random.conf ---" \
+    && cat /etc/strongswan.d/charon/random.conf \
+    && echo "--- Plugin .so files ---" \
+    && ls -la /usr/lib/ipsec/plugins/libstrongswan-*.so \
+    && echo "--- libstrongswan.so ---" \
+    && ls -la /usr/lib/ipsec/libstrongswan.so* \
+    && echo "--- /etc/strongswan.conf ---" \
+    && cat /etc/strongswan.conf \
+    && echo "--- ldconfig strongswan ---" \
+    && ldconfig -p | grep strongswan \
+    && echo "=== DEBUG END ==="
+
 # Expose IKEv2 ports (documented — actual binding via network_mode: host)
 # UDP 500  = IKE (key exchange)
 # UDP 4500 = NAT-T (ESP-in-UDP)
