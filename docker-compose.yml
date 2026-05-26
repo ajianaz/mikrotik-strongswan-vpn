@@ -67,13 +67,8 @@ services:
     environment:
       - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
 
-    # healthcheck disabled temporarily for debugging
-    # healthcheck:
-    #   test: ["CMD-SHELL", "swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 3
-    #   start_period: 10s
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x charon >/dev/null"]
 
   # ── VPN Manager API ────────────────────────────────────────────────────
   vpn-manager:
@@ -103,6 +98,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      vpn-server:
+        condition: service_started
 
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]

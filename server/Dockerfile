@@ -81,6 +81,6 @@ EXPOSE 500/udp 4500/udp
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
     CMD pgrep -x charon >/dev/null
 
-# Start charon — ELF binary stays in foreground by default.
-ENTRYPOINT ["/usr/local/bin/charon"]
-# Build trigger 1779793126
+# Start charon — foreground mode with debug logging.
+# DEBUG MODE: -d ike=3 (will revert to no flags after fixing segfault)
+ENTRYPOINT ["/usr/local/bin/charon", "-d", "ike=3"]
