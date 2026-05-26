@@ -8,62 +8,46 @@ FROM ubuntu:24.04
 
 # Prevent interactive prompts during apt
 ENV DEBIAN_FRONTEND=noninteractive
-# Tell charon where to find plugins and config.
-# Required when running the ELF binary directly (bypassing wrapper scripts).
-ENV CHARON_PLUGINS_DIR=/usr/lib/ipsec/plugins
-ENV STRONGSWAN_CONF=/etc/strongswan.conf
 
 # Install strongSwan + swanctl + utilities
 # - strongswan: core IKEv2 daemon (charon)
 # - strongswan-swanctl: modern swanctl CLI (replaces ipsec)
 # - strongswan-pki: optional, for future certificate support
+# - libcharon-plugins: CORE crypto plugins (SHA1, AES, NONCE, HMAC, etc.)
+#   CRITICAL: without this, charon fails with "unmet dependency: HASH_SHA1"
 # - libcharon-extra-plugins: ECP384 DH group + additional crypto
 # - iproute2: ip / ss utilities for debugging
-# - file: for ELF detection during build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         strongswan \
         strongswan-swanctl \
         strongswan-pki \
+        libcharon-plugins \
         libcharon-extra-plugins \
         iproute2 \
         iptables \
-        file \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Find the actual charon ELF binary and symlink to /usr/local/bin.
+# Find charon binary and create symlink to /usr/local/bin.
 # Ubuntu 24.04 layout differs by architecture:
-#   AMD64: /usr/sbin/charon (wrapper) + /usr/lib/ipsec/charon (ELF binary)
-#   ARM64: /usr/lib/ipsec/charon (ELF binary only, no /usr/sbin wrapper)
-#
-# The ELF binary stays in foreground by default — perfect for Docker.
-# Wrapper scripts may daemonize or add invalid flags (e.g., -T).
-RUN CHARON_ELF="" \
+#   AMD64: /usr/sbin/charon (wrapper) + /usr/lib/ipsec/charon (binary)
+#   ARM64: /usr/lib/ipsec/charon (binary only, no /usr/sbin wrapper)
+RUN CHARON_BIN="" \
     && for p in /usr/lib/ipsec/charon /usr/libexec/ipsec/charon /usr/lib64/ipsec/charon; do \
-        if [ -f "$p" ] && file "$p" 2>/dev/null | grep -q "ELF"; then \
-            CHARON_ELF="$p"; break; \
-        fi; \
+        if [ -f "$p" ]; then CHARON_BIN="$p"; break; fi; \
     done \
-    && if [ -z "$CHARON_ELF" ] && [ -f /usr/sbin/charon ]; then \
-        CHARON_ELF=/usr/sbin/charon; \
+    && if [ -z "$CHARON_BIN" ] && [ -f /usr/sbin/charon ]; then \
+        CHARON_BIN=/usr/sbin/charon; \
     fi \
-    && if [ -z "$CHARON_ELF" ]; then echo "ERROR: charon binary not found" && exit 1; fi \
-    && ln -sf "$CHARON_ELF" /usr/local/bin/charon \
-    && echo "charon binary: $CHARON_ELF ($(file -b "$CHARON_ELF" | head -c 40))" \
+    && if [ -z "$CHARON_BIN" ]; then echo "ERROR: charon binary not found" && exit 1; fi \
+    && ln -sf "$CHARON_BIN" /usr/local/bin/charon \
+    && echo "charon binary: $CHARON_BIN" \
     && for bin in swanctl pki; do \
         for p in /usr/lib/ipsec/$bin /usr/libexec/ipsec/$bin /usr/lib64/ipsec/$bin /usr/sbin/$bin; do \
             if [ -f "$p" ]; then ln -sf "$p" /usr/local/bin/$bin && echo "Linked: $p"; break; fi; \
         done; \
     done
-
-# Verify required binaries
-RUN for bin in charon swanctl; do \
-        if [ ! -f "/usr/local/bin/$bin" ]; then \
-            echo "ERROR: $bin not found" && exit 1; \
-        fi; \
-    done \
-    && echo "Build verified OK"
 
 # swanctl config directory
 RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki \
@@ -82,5 +66,5 @@ EXPOSE 500/udp 4500/udp
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
     CMD pgrep -x charon >/dev/null
 
-# Start charon — the ELF binary stays in foreground by default.
+# Start charon — ELF binary stays in foreground by default.
 ENTRYPOINT ["/usr/local/bin/charon"]
