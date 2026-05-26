@@ -13,8 +13,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 #
 # Ubuntu 24.04 splits strongSwan into many packages:
 #   strongswan              = metapackage (docs only on ARM!)
+#   libstrongswan          = CORE: libstrongswan.so + crypto plugins (SHA1, AES, NONCE, RNG, etc.)
+#                            CRITICAL: without this, charon fails "unmet dependency: HASH_SHA1"
 #   strongswan-charon       = /usr/lib/ipsec/charon binary + default config
-#   strongswan-libcharon    = libcharon.so + core plugins (socket-default, updown, etc.)
+#   strongswan-libcharon    = libcharon.so + IKE plugins (socket-default, updown, etc.)
 #   strongswan-swanctl      = /usr/sbin/swanctl + vici plugin
 #   strongswan-pki          = pki tool for cert management
 #   libcharon-extra-plugins = additional plugins (EAP, RADIUS, ECP384, etc.)
@@ -22,6 +24,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # We install explicit binary packages, NOT the metapackage.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+        libstrongswan \
         strongswan-charon \
         strongswan-libcharon \
         strongswan-swanctl \
