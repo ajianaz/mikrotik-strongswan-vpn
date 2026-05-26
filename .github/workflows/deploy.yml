@@ -71,4 +71,40 @@ jobs:
             echo "=== vpn-server logs ==="
             docker logs vpn-server 2>&1 | tail -30 || true
 
+            echo "=== DEBUG: inspect container filesystem ==="
+            docker compose exec vpn-server sh -c '
+                echo "--- /etc/strongswan.d/ listing ---"
+                ls -la /etc/strongswan.d/ 2>/dev/null || echo "NOT FOUND"
+                echo "--- /etc/strongswan.d/charon/ listing ---"
+                ls -la /etc/strongswan.d/charon/ 2>/dev/null || echo "NOT FOUND"
+                echo "--- sha1.conf ---"
+                cat /etc/strongswan.d/charon/sha1.conf 2>/dev/null || echo "NOT FOUND"
+                echo "--- nonce.conf ---"
+                cat /etc/strongswan.d/charon/nonce.conf 2>/dev/null || echo "NOT FOUND"
+                echo "--- Plugin .so files ---"
+                ls /usr/lib/ipsec/plugins/ 2>/dev/null || echo "NOT FOUND"
+                echo "--- libstrongswan.so ---"
+                ls -la /usr/lib/ipsec/libstrongswan.so* 2>/dev/null || echo "NOT FOUND"
+                echo "--- charon binary ---"
+                file /usr/local/bin/charon
+                echo "--- ldd charon ---"
+                ldd /usr/local/bin/charon 2>/dev/null | head -10
+                echo "--- /etc/strongswan.conf ---"
+                cat /etc/strongswan.conf
+            ' 2>&1 || echo "Container not running, trying docker run..."
+            if ! docker compose exec vpn-server true 2>/dev/null; then
+                echo "--- Container not running, inspecting image directly ---"
+                docker compose pull vpn-server 2>/dev/null
+                docker run --rm ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-server:develop sh -c '
+                    echo "--- /etc/strongswan.d/charon/ ---"
+                    ls -la /etc/strongswan.d/charon/ 2>/dev/null || echo "NOT FOUND"
+                    echo "--- sha1.conf ---"
+                    cat /etc/strongswan.d/charon/sha1.conf 2>/dev/null || echo "NOT FOUND"
+                    echo "--- plugins ---"
+                    ls /usr/lib/ipsec/plugins/libstrongswan-sha1* /usr/lib/ipsec/plugins/libstrongswan-nonce* /usr/lib/ipsec/plugins/libstrongswan-random* 2>/dev/null || echo "NOT FOUND"
+                    echo "--- ldconfig ---"
+                    ldconfig -p 2>/dev/null | grep strongswan | head -10
+                ' 2>&1
+            fi
+
             echo "=== Deploy complete ==="
