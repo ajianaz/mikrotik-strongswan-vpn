@@ -61,8 +61,8 @@ services:
     volumes:
       # Shared swanctl config — vpn-manager writes here, vpn-server reads here
       - vpn-configs:/etc/swanctl
-      # strongswan.conf copied during build, mount for runtime overrides
-      - ./server/strongswan.conf:/etc/strongswan.conf:ro
+      # NOTE: strongswan.conf is copied into the image at build time (see server/Dockerfile)
+      # No host mount needed — avoids "file not found" on fresh deploys
 
     environment:
       - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}

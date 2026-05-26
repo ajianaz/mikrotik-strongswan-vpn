@@ -53,11 +53,14 @@ jobs:
           script: |
             cd ${{ steps.path.outputs.target }}
 
+            echo "=== Pulling latest code ==="
+            git pull
+
             echo "=== Pulling latest images ==="
             docker compose pull
 
             echo "=== Restarting services ==="
-            docker compose up -d --remove-orphans
+            docker compose up -d --remove-orphans --force-recreate
 
             echo "=== Waiting for containers ==="
             sleep 10
