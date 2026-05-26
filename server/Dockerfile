@@ -12,6 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Tell the dynamic linker where to find strongSwan libraries.
 # Without this, charon can't dlopen() libstrongswan.so and plugin .so files,
 # causing: "unmet dependency: HASH_SHA1" → "initialization failed".
+# Also registered via ldconfig (below) as belt-and-suspenders.
 ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 
 # Install strongSwan — explicit packages (not metapackage).
