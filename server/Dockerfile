@@ -46,6 +46,10 @@ RUN apt-get update \
 RUN echo "/usr/lib/ipsec" > /etc/ld.so.conf.d/libstrongswan.conf \
     && ldconfig
 
+# Copy dummy updown script (charon calls on SA events, default does nothing)
+COPY updown.sh /usr/lib/ipsec/updown.sh
+RUN chmod +x /usr/lib/ipsec/updown.sh
+
 # Find charon binary and create symlink to /usr/local/bin.
 # Ubuntu 24.04 ARM64: /usr/lib/ipsec/charon (no /usr/sbin wrapper)
 RUN CHARON_BIN="" \
