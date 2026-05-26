@@ -26,31 +26,42 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Symlink all strongSwan binaries into /usr/local/bin for consistent PATH access.
-# Ubuntu 24.04 ARM places binaries under /usr/lib/ipsec/ (not /usr/sbin).
-# AMD64 uses /usr/sbin. This handles both by scanning libexec/lib dirs.
-RUN LIB_DIR=$(find /usr/lib* /usr/libexec -maxdepth 2 -name 'charon' -type f -executable 2>/dev/null | head -1 | xargs dirname) \
-    && if [ -n "$LIB_DIR" ]; then \
-        for bin in charon swanctl pki; do \
-            if [ -f "$LIB_DIR/$bin" ] && [ ! -f "/usr/local/bin/$bin" ]; then \
-                ln -sf "$LIB_DIR/$bin" "/usr/local/bin/$bin" && echo "Linked: $LIB_DIR/$bin -> /usr/local/bin/$bin"; \
-            fi; \
-        done; \
-    fi \
-    # Also link /usr/sbin binaries if they exist (AMD64 path)
-    && for bin in charon swanctl pki; do \
-        if [ -f "/usr/sbin/$bin" ] && [ ! -f "/usr/local/bin/$bin" ]; then \
-            ln -sf "/usr/sbin/$bin" "/usr/local/bin/$bin" && echo "Linked: /usr/sbin/$bin -> /usr/local/bin/$bin"; \
+# Find the actual charon ELF binary and symlink to /usr/local/bin.
+# Ubuntu 24.04 layout differs by architecture:
+#   AMD64: /usr/sbin/charon (wrapper script) + /usr/lib/ipsec/charon (ELF binary)
+#   ARM64: /usr/lib/ipsec/charon (ELF binary only, no /usr/sbin wrapper)
+#
+# We need the ELF binary — it stays in foreground by default (no daemonization).
+# The wrapper scripts (/usr/sbin/charon, charon-systemd) may daemonize or add
+# flags that don't work in containers (e.g., -T is invalid for the ELF binary).
+#
+# Strategy: prefer /usr/lib/ipsec/charon (always ELF), fall back to /usr/sbin.
+RUN CHARON_ELF="" \
+    && for p in /usr/lib/ipsec/charon /usr/libexec/ipsec/charon /usr/lib64/ipsec/charon; do \
+        if [ -f "$p" ] && file "$p" 2>/dev/null | grep -q "ELF"; then \
+            CHARON_ELF="$p"; break; \
         fi; \
+    done \
+    && if [ -z "$CHARON_ELF" ] && [ -f /usr/sbin/charon ]; then \
+        CHARON_ELF=/usr/sbin/charon; \
+    fi \
+    && if [ -z "$CHARON_ELF" ]; then echo "ERROR: charon binary not found" && exit 1; fi \
+    && ln -sf "$CHARON_ELF" /usr/local/bin/charon \
+    && echo "charon binary: $CHARON_ELF ($(file -b "$CHARON_ELF" | head -c 40))" \
+    # Also symlink swanctl and pki for healthcheck
+    && for bin in swanctl pki; do \
+        for p in /usr/lib/ipsec/$bin /usr/libexec/ipsec/$bin /usr/lib64/ipsec/$bin /usr/sbin/$bin; do \
+            if [ -f "$p" ]; then ln -sf "$p" /usr/local/bin/$bin && echo "Linked: $p"; break; fi; \
+        done; \
     done
 
 # Verify required binaries exist
 RUN for bin in charon swanctl; do \
-        if ! command -v "$bin" > /dev/null 2>&1 && [ ! -f "/usr/local/bin/$bin" ]; then \
+        if [ ! -f "/usr/local/bin/$bin" ]; then \
             echo "ERROR: $bin not found" && exit 1; \
         fi; \
     done \
-    && echo "Build verified: charon=$(which charon 2>/dev/null || echo /usr/local/bin/charon) swanctl=$(which swanctl 2>/dev/null || echo /usr/local/bin/swanctl)"
+    && echo "Build verified OK"
 
 # swanctl config directory
 RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki \
@@ -65,12 +76,10 @@ COPY strongswan.conf /etc/strongswan.conf
 # UDP 4500 = NAT-T (ESP-in-UDP)
 EXPOSE 500/udp 4500/udp
 
-# Healthcheck: verify charon is running (process check, not swanctl --stats)
-# swanctl --stats depends on loaded connections which won't exist on fresh deploy.
-# Checking the charon process is sufficient to confirm the daemon is alive.
+# Healthcheck: check if charon process is alive
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
-    CMD test -f /usr/local/bin/charon && /usr/local/bin/charon --help >/dev/null 2>&1 || pgrep -x charon >/dev/null
+    CMD pgrep -x charon >/dev/null
 
-# Start charon in foreground mode — required for Docker (no init system).
-# Without -T, charon daemonizes and the container exits immediately (code 66).
-ENTRYPOINT ["/usr/local/bin/charon", "-T"]
+# Start charon — the ELF binary stays in foreground by default.
+# No -T flag (invalid for the actual binary, not a wrapper).
+ENTRYPOINT ["/usr/local/bin/charon"]
