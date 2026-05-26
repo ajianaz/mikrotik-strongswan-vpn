@@ -68,4 +68,7 @@ jobs:
             echo "=== Container status ==="
             docker compose ps
 
+            echo "=== vpn-server logs ==="
+            docker logs vpn-server 2>&1 | tail -30 || true
+
             echo "=== Deploy complete ==="
