@@ -46,6 +46,12 @@ RUN apt-get update \
 RUN echo "/usr/lib/ipsec" > /etc/ld.so.conf.d/libstrongswan.conf \
     && ldconfig
 
+# Remove all package-installed plugin config files.
+# We control plugins exclusively via strongswan.conf (load_modular=no + explicit list).
+# Package configs in /etc/strongswan.d/charon/*.conf override our settings and
+# cause unwanted plugins to load (led, error-notify, unity, etc.) → segfault.
+RUN rm -rf /etc/strongswan.d/
+
 # Copy dummy updown script (charon calls on SA events, default does nothing)
 COPY updown.sh /usr/lib/ipsec/updown.sh
 RUN chmod +x /usr/lib/ipsec/updown.sh
