@@ -48,6 +48,12 @@ if [[ ! -f /etc/ppp/chap-secrets ]]; then
   echo "[entrypoint] Created empty /etc/ppp/chap-secrets"
 fi
 
+# ── Process xl2tpd.conf template with env vars ──
+if [[ -f /etc/xl2tpd/xl2tpd.conf ]]; then
+    envsubst '${VPN_POOL_RANGE} ${VPN_POOL_LOCAL_IP}' < /etc/xl2tpd/xl2tpd.conf > /tmp/xl2tpd.conf.tmp
+    mv /tmp/xl2tpd.conf.tmp /etc/xl2tpd/xl2tpd.conf
+fi
+
 # ── Start xl2tpd in background ──
 echo "[entrypoint] Starting xl2tpd..." >&2
 xl2tpd -D &
