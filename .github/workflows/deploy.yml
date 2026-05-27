@@ -187,9 +187,7 @@ jobs:
             fi
 
             # Check API healthz via docker exec (bypasses port mapping)
-            # Find the actual listening port from container (Alpine has netstat in busybox)
-            MGR_PORT=$(docker exec vpn-manager netstat -tlnp 2>/dev/null | grep 'LISTEN' | awk '{print $4}' | rev | cut -d: -f1 | rev | head -1)
-            MGR_PORT=${MGR_PORT:-8080}
+            MGR_PORT=$(docker exec vpn-manager sh -c 'echo ${LISTEN_PORT:-6060}' 2>/dev/null)
             if docker exec vpn-manager wget -q -O /dev/null "http://localhost:${MGR_PORT}/healthz" 2>/dev/null; then
               echo "  ✅ API /healthz: 200 (via docker exec)"
             else
