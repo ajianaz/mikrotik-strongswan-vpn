@@ -8,8 +8,13 @@ set -euo pipefail
 # Prerequisites:
 #   1. cp .env.example .env && nano .env    (fill all required fields)
 #   2. bash scripts/validate.sh            (verify .env)
-#   3. bash scripts/setup.sh               (generate configs)
-#   4. bash scripts/deploy.sh              (THIS — build + start)
+#   3. bash scripts/setup.sh               (generate configs + sync to volume)
+#   4. bash scripts/deploy.sh              (THIS — start services)
+#
+# Config flow:
+#   setup.sh generates → ./config/ → syncs to vpn-configs Docker volume
+#   vpn-manager API writes runtime configs → /etc/swanctl/conf.d/ (in volume)
+#   vpn-server reads from /etc/swanctl (shared volume)
 #
 # =============================================================================
 
@@ -32,6 +37,8 @@ while [[ ! -f "${REPO_ROOT}/docker-compose.yml" ]]; do
   fi
 done
 
+CONFIG_DIR="${REPO_ROOT}/config"
+
 echo ""
 echo "========================================"
 echo "  VPN Deployment"
@@ -44,16 +51,6 @@ if [[ ! -f "${REPO_ROOT}/.env" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${REPO_ROOT}/config/conf.d/vpn.conf" ]]; then
-  fail "config/conf.d/vpn.conf not found. Run: bash scripts/setup.sh first"
-  exit 1
-fi
-
-if [[ ! -f "${REPO_ROOT}/config/secret" ]]; then
-  fail "config/secret not found. Run: bash scripts/setup.sh first"
-  exit 1
-fi
-
 if ! docker info >/dev/null 2>&1; then
   fail "Docker daemon not running"
   exit 1
@@ -61,15 +58,20 @@ fi
 
 # ── Pre-deploy summary ──
 echo "  Config files:"
-echo "    config/swanctl.conf  = $(test -f "${REPO_ROOT}/config/swanctl.conf" && echo "OK" || echo "MISSING")"
-echo "    config/conf.d/vpn.conf = $(test -f "${REPO_ROOT}/config/conf.d/vpn.conf" && echo "OK" || echo "MISSING")"
-echo "    config/secret        = $(test -f "${REPO_ROOT}/config/secret" && echo "OK" || echo "MISSING")"
+echo "    config/swanctl.conf  = $(test -f "${CONFIG_DIR}/swanctl.conf" && echo "OK" || echo "MISSING")"
+echo "    config/conf.d/roadwarrior-eap.conf = $(test -f "${CONFIG_DIR}/conf.d/roadwarrior-eap.conf" && echo "OK" || echo "MISSING")"
 echo ""
 
+# ── Source .env for LISTEN port detection ──
+set -a
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/.env"
+set +a
+
 # ── Deploy ──
-echo "  Building and starting Docker Compose..."
+echo "  Starting Docker Compose..."
 cd "${REPO_ROOT}"
-docker compose up -d --build
+docker compose up -d
 
 echo ""
 echo "  Waiting for charon daemon to initialize..."
@@ -116,9 +118,12 @@ else
   echo "${sas_output}"
 fi
 
+# ── vpn-manager API health check ──
 echo ""
 echo "  --- vpn-manager API ---"
-api_check="$(docker exec vpn-manager wget -qO- http://localhost:8080/healthz 2>&1 || true)"
+LISTEN="${LISTEN:-:8080}"
+API_PORT="${LISTEN#:}"
+api_check="$(docker exec vpn-manager wget -qO- "http://localhost:${API_PORT}/healthz" 2>&1 || true)"
 if echo "${api_check}" | grep -q "ok\|healthy\|200"; then
   pass "vpn-manager API is healthy"
 else
@@ -129,6 +134,7 @@ echo ""
 echo -e "  ${GREEN}Deployment complete.${NC}"
 echo ""
 echo "  Next steps:"
-echo "    1. Import client/mikrotik.rsc on MikroTik to establish tunnel"
-echo "    2. Run: bash scripts/verify.sh to check tunnel status"
+echo "    1. Add tunnels via API: POST /api/v1/tunnels"
+echo "    2. Import generated RSC script on MikroTik"
+echo "    3. Run: bash scripts/verify.sh to check tunnel status"
 echo ""

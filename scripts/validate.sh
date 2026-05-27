@@ -70,81 +70,49 @@ else
   ((fail_count++)) || true
 fi
 
-# ── Check 3: VPN_PSK (length + entropy) ──
-if [[ -n "${VPN_PSK:-}" ]]; then
-  psk_len="${#VPN_PSK}"
-  psk_entropy="$(VPN_PSK="${VPN_PSK}" python3 -c "
-import math, os
-from collections import Counter
-psk = os.environ['VPN_PSK']
-counts = Counter(psk)
-length = len(psk)
-entropy = -sum((c / length) * math.log2(c / length) for c in counts.values())
-print(f'{entropy:.4f}')
-")"
-  if (( psk_len >= 24 )) && python3 -c "import sys; exit(0 if float('${psk_entropy}') >= 3.0 else 1)"; then
-    pass "VPN_PSK length=${psk_len}, entropy=${psk_entropy}"
-    ((pass_count++)) || true
-  else
-    reasons=()
-    (( psk_len < 24 )) && reasons+=("length ${psk_len} < 24") || true
-    (( $(python3 -c "import sys; print(1 if float('${psk_entropy}') < 3.0 else 0)") )) && reasons+=("entropy ${psk_entropy} < 3.0") || true
-    warn "VPN_PSK weak: ${reasons[*]} — run: bash scripts/generate-psk.sh"
-    ((warn_count++)) || true
-  fi
-else
-  fail "VPN_PSK is not set"
-  ((fail_count++)) || true
-fi
-
-# ── Check 4: CLIENT_LAN_SUBNET ──
-CIDR_REGEX='^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}/(1[6-9]|2[0-8])$'
-if [[ -n "${CLIENT_LAN_SUBNET:-}" ]] && echo "${CLIENT_LAN_SUBNET}" | grep -qE "${CIDR_REGEX}"; then
-  pass "CLIENT_LAN_SUBNET = ${CLIENT_LAN_SUBNET}"
-  ((pass_count++)) || true
-else
-  fail "CLIENT_LAN_SUBNET invalid (must be CIDR /16-/28, current: '${CLIENT_LAN_SUBNET:-<unset>}')"
-  ((fail_count++)) || true
-fi
-
-# ── Check 5: CLIENT_FQDN (optional) ──
-FQDN_REGEX='^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$'
-if [[ -z "${CLIENT_FQDN:-}" ]]; then
-  warn "CLIENT_FQDN is empty (optional, but recommended for multi-site)"
-  ((warn_count++)) || true
-elif echo "${CLIENT_FQDN}" | grep -qE "${FQDN_REGEX}"; then
-  pass "CLIENT_FQDN = ${CLIENT_FQDN}"
-  ((pass_count++)) || true
-else
-  fail "CLIENT_FQDN invalid RFC 1123 (current: '${CLIENT_FQDN}')"
-  ((fail_count++)) || true
-fi
-
-# ── Check 6: VPN_POOL_SUBNET (valid + no overlap) ──
+# ── Check 3: VPN_POOL_SUBNET (valid CIDR) ──
 POOL_CIDR_REGEX='^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}/([0-9]|[12][0-9]|3[0-2])$'
 if [[ -n "${VPN_POOL_SUBNET:-}" ]] && echo "${VPN_POOL_SUBNET}" | grep -qE "${POOL_CIDR_REGEX}"; then
-  overlap="$(python3 -c "
-import ipaddress
-try:
-    a = ipaddress.ip_network('${VPN_POOL_SUBNET}', strict=False)
-    b = ipaddress.ip_network('${CLIENT_LAN_SUBNET:-0.0.0.0/0}', strict=False)
-    print('overlap' if a.overlaps(b) else 'ok')
-except Exception:
-    print('error')
-")"
-  if [[ "${overlap}" == "ok" ]]; then
-    pass "VPN_POOL_SUBNET = ${VPN_POOL_SUBNET} (no overlap)"
-    ((pass_count++)) || true
-  else
-    fail "VPN_POOL_SUBNET overlaps CLIENT_LAN_SUBNET (${VPN_POOL_SUBNET} vs ${CLIENT_LAN_SUBNET:-?})"
-    ((fail_count++)) || true
-  fi
+  pass "VPN_POOL_SUBNET = ${VPN_POOL_SUBNET}"
+  ((pass_count++)) || true
 else
   fail "VPN_POOL_SUBNET invalid (current: '${VPN_POOL_SUBNET:-<unset>}')"
   ((fail_count++)) || true
 fi
 
-# ── Check 7: Docker daemon ──
+# ── Check 4: CLIENT_LAN_SUBNET (optional, per-tunnel default) ──
+CIDR_REGEX='^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}/(1[6-9]|2[0-8])$'
+if [[ -n "${CLIENT_LAN_SUBNET:-}" ]]; then
+  if echo "${CLIENT_LAN_SUBNET}" | grep -qE "${CIDR_REGEX}"; then
+    warn "CLIENT_LAN_SUBNET = ${CLIENT_LAN_SUBNET} (optional, per-tunnel via API)"
+    ((warn_count++)) || true
+  else
+    warn "CLIENT_LAN_SUBNET invalid CIDR (ignored — set per-tunnel via API)"
+    ((warn_count++)) || true
+  fi
+else
+  pass "CLIENT_LAN_SUBNET not set (managed per-tunnel via API)"
+  ((pass_count++)) || true
+fi
+
+# ── Check 5: AUTH_TYPE ──
+if [[ -n "${AUTH_TYPE:-}" ]]; then
+  case "${AUTH_TYPE}" in
+    eap|l2tp|both)
+      pass "AUTH_TYPE = ${AUTH_TYPE}"
+      ((pass_count++)) || true
+      ;;
+    *)
+      fail "AUTH_TYPE invalid (must be 'eap', 'l2tp', or 'both', current: '${AUTH_TYPE}')"
+      ((fail_count++)) || true
+      ;;
+  esac
+else
+  warn "AUTH_TYPE not set (defaults to 'eap')"
+  ((warn_count++)) || true
+fi
+
+# ── Check 6: Docker daemon ──
 if docker info >/dev/null 2>&1; then
   pass "Docker daemon is running"
   ((pass_count++)) || true
@@ -153,7 +121,7 @@ else
   ((fail_count++)) || true
 fi
 
-# ── Check 8: UDP 500 & 4500 available ──
+# ── Check 7: UDP 500 & 4500 available ──
 port_issues=()
 if ss -uln 2>/dev/null | grep -q ':500 ' || ss -uln 2>/dev/null | grep -q ':500$'; then
   port_issues+=("UDP 500")
