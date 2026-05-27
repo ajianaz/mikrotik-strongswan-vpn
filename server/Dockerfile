@@ -28,6 +28,7 @@ RUN apt-get update \
         strongswan-pki \
         xl2tpd \
         ppp \
+        gettext-base \
         iproute2 \
         iptables \
         procps \
