@@ -177,7 +177,9 @@ jobs:
             fi
 
             # Check API healthz via docker exec (bypasses port mapping)
-            if docker exec vpn-manager wget -q -O /dev/null http://localhost:8080/healthz 2>/dev/null; then
+            # Read LISTEN_PORT from container env (set via docker-compose)
+            MGR_PORT=$(docker exec vpn-manager sh -c 'echo ${LISTEN_PORT:-8080}' 2>/dev/null)
+            if docker exec vpn-manager wget -q -O /dev/null "http://localhost:${MGR_PORT}/healthz" 2>/dev/null; then
               echo "  ✅ API /healthz: 200 (via docker exec)"
             else
               echo "  ❌ API /healthz: unreachable"

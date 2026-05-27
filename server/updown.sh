@@ -8,6 +8,11 @@ set -euo pipefail
 API_URL="http://localhost:8080/api/v1"
 LOG_TAG="updown"
 
+# If LISTEN_PORT is set (via vpn-server env), use it
+if [[ -n "${LISTEN_PORT:-}" ]]; then
+  API_URL="http://localhost:${LISTEN_PORT}/api/v1"
+fi
+
 log_msg() {
     echo "[${LOG_TAG}] $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*" >&2
 }
