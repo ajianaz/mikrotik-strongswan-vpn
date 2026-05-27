@@ -164,24 +164,10 @@ jobs:
             CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo "0")
             echo "  📊 Connections: $CONN_COUNT loaded, $SAS_COUNT active SAs"
 
-            # Check API healthz (try from container first, then host)
-            API_CODE="000"
-            # Try via docker exec (bypasses port mapping issues)
-            API_CODE=$(docker exec vpn-manager wget -q -O /dev/null -S --spider http://localhost:6060/healthz 2>&1 | grep "HTTP/" | awk '{print $2}' | tail -1 || echo "000")
-            if [ "$API_CODE" = "200" ]; then
-              echo "  ✅ API /healthz: $API_CODE (via docker exec)"
+            # Check API healthz via docker exec (bypasses port mapping)
+            if docker exec vpn-manager wget -q -O /dev/null http://localhost:6060/healthz 2>/dev/null; then
+              echo "  ✅ API /healthz: 200 (via docker exec)"
             else
-              # Fallback: try host ports
-              for PORT in 6060 8080; do
-                CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 http://localhost:${PORT}/healthz 2>/dev/null || echo "000")
-                if [ "$CODE" = "200" ]; then
-                  API_CODE="$CODE"
-                  echo "  ✅ API /healthz: $API_CODE (port $PORT)"
-                  break
-                fi
-              done
-            fi
-            if [ "$API_CODE" != "200" ]; then
               echo "  ❌ API /healthz: unreachable"
               FAIL=1
             fi
