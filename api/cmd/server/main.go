@@ -49,9 +49,10 @@ func main() {
 
 	// Setup services
 	swanCfg := strongswan.Config{
-		ContainerName: cfg.VPNContainer,
-		ConfigDir:     cfg.VPNConfigDir,
-		SecretFile:    cfg.VPNSecretFile,
+		ContainerName:  cfg.VPNContainer,
+		ConfigDir:      cfg.VPNConfigDir,
+		SecretFile:     cfg.VPNSecretFile,
+		L2TPSecretFile: cfg.VPNL2TPSecretFile,
 	}
 	svc := service.NewService(pool, swanCfg)
 	h := handler.NewHandler(svc)

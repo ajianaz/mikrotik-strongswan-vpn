@@ -270,7 +270,8 @@ func RemoveL2TPSecret(cfg Config, username string) error {
 	lines := strings.Split(string(content), "\n")
 	var filtered []string
 	for _, line := range lines {
-		if strings.HasPrefix(line, username) {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == username {
 			continue
 		}
 		filtered = append(filtered, line)

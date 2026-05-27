@@ -20,6 +20,13 @@ case "${PLUTO_VERB:-}" in
             log_msg "UP: no PEER_ID, skipping route"
             exit 0
         fi
+
+        # Validate PEER_ID (EAP identity from client)
+        if [[ ! "$PEER_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            log_msg "UP: invalid PEER_ID, skipping: ${PEER_ID}"
+            exit 0
+        fi
+
         log_msg "UP: peer=${PEER_ID} vip=${VIRTUAL_IP}"
         
         # Query API for tunnel info
@@ -32,6 +39,11 @@ case "${PLUTO_VERB:-}" in
         LOCAL_SUBNET=$(echo "$TUNNEL_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['local_subnet'])" 2>/dev/null || echo "")
         if [[ -z "$LOCAL_SUBNET" ]]; then
             log_msg "UP: no local_subnet found for ${PEER_ID}"
+            exit 0
+        fi
+
+        if [[ ! "$LOCAL_SUBNET" =~ ^[0-9./]+$ ]]; then
+            log_msg "UP: invalid LOCAL_SUBNET, skipping: ${LOCAL_SUBNET}"
             exit 0
         fi
         

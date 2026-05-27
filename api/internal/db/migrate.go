@@ -49,7 +49,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			name         TEXT NOT NULL,
 			peer_ip      INET NOT NULL,
 			local_subnet CIDR NOT NULL DEFAULT '10.10.10.0/24',
-			psk          TEXT NOT NULL,
+			psk          TEXT,
 			status       TEXT NOT NULL DEFAULT 'active',
 			metadata     JSONB DEFAULT '{}',
 			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),

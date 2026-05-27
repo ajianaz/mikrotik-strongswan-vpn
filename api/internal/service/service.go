@@ -167,11 +167,14 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		LocalSubnet: t.LocalSubnet,
 		PSK:         t.PSK,
 	}
-	if err := strongswan.WriteTunnelConfig(s.swanCfg, data); err != nil {
-		// Cleanup: remove DB entry and release IP.
-		s.deleteTunnelDB(ctx, t.TunnelID)
-		s.releaseIP(ctx, t.TunnelID)
-		return nil, fmt.Errorf("write tunnel config: %w", err)
+	// Only PSK tunnels need per-tunnel connection config
+	if authType == "psk" || authType == "" {
+		if err := strongswan.WriteTunnelConfig(s.swanCfg, data); err != nil {
+			// Cleanup: remove DB entry and release IP.
+			s.deleteTunnelDB(ctx, t.TunnelID)
+			s.releaseIP(ctx, t.TunnelID)
+			return nil, fmt.Errorf("write tunnel config: %w", err)
+		}
 	}
 
 	// 7. Write secrets based on auth type.
@@ -230,11 +233,18 @@ func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, erro
 	return &t, nil
 }
 
-// ListTunnels returns all tunnels ordered by creation time (newest first).
-func (s *Service) ListTunnels(ctx context.Context) ([]Tunnel, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at
-		 FROM vpn_tunnels ORDER BY created_at DESC`)
+// ListTunnels returns tunnels ordered by creation time (newest first).
+// If username is non-empty, filters by that username (used by updown.sh routing).
+func (s *Service) ListTunnels(ctx context.Context, username string) ([]Tunnel, error) {
+	query := `SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at
+		 FROM vpn_tunnels`
+	var args []interface{}
+	if username != "" {
+		query += ` WHERE username = $1`
+		args = append(args, username)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tunnels: %w", err)
 	}
@@ -269,10 +279,12 @@ func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
 		return fmt.Errorf("get tunnel %s: %w", tunnelID, err)
 	}
 
-	// 2. Remove strongSwan config (best-effort).
-	if err := strongswan.RemoveTunnelConfig(s.swanCfg, tunnelID); err != nil {
-		slog.Error("failed to remove tunnel config, continuing cleanup",
-			"tunnel_id", tunnelID, "error", err)
+	// 2. Remove strongSwan config (best-effort, PSK only).
+	if authType == "psk" {
+		if err := strongswan.RemoveTunnelConfig(s.swanCfg, tunnelID); err != nil {
+			slog.Error("failed to remove tunnel config, continuing cleanup",
+				"tunnel_id", tunnelID, "error", err)
+		}
 	}
 
 	// 3. Remove secrets based on auth type (best-effort).
@@ -325,9 +337,22 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 		LocalIP:     LOCAL_IP,
 		LocalSubnet: t.LocalSubnet,
 		PSK:         t.PSK,
+		AuthType:    t.AuthType,
+		Username:    t.Username,
+		Password:    t.PasswordPlain,
 	}
 
-	rendered, err := template.RenderMikroTikRSC(data)
+	var rendered string
+	switch strings.ToLower(t.AuthType) {
+	case "eap":
+		rendered, err = template.RenderMikroTikEAPRSC(data)
+	case "l2tp":
+		rendered, err = template.RenderMikroTikL2TPRSC(data)
+	case "psk":
+		rendered, err = template.RenderMikroTikRSC(data)
+	default:
+		rendered, err = template.RenderMikroTikRSC(data)
+	}
 	if err != nil {
 		return "", fmt.Errorf("render mikrotik rsc for %s: %w", tunnelID, err)
 	}

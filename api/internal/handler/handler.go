@@ -119,8 +119,10 @@ func (h *Handler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListTunnels handles GET / — returns all tunnels, never null.
+// Supports optional ?username= filter.
 func (h *Handler) ListTunnels(w http.ResponseWriter, r *http.Request) {
-	tunnels, err := h.svc.ListTunnels(r.Context())
+	username := r.URL.Query().Get("username")
+	tunnels, err := h.svc.ListTunnels(r.Context(), username)
 	if err != nil {
 		writeError(w, err)
 		return
