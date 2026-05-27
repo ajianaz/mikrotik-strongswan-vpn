@@ -52,8 +52,11 @@ set -a
 source "${REPO_ROOT}/.env"
 set +a
 
+# ── Set defaults ──
+AUTH_TYPE="${AUTH_TYPE:-eap}"
+
 # ── Validate required vars ──
-REQUIRED_VARS=(SERVER_PUBLIC_IP VPN_PSK CLIENT_LAN_SUBNET CLIENT_FQDN VPN_POOL_SUBNET)
+REQUIRED_VARS=(SERVER_PUBLIC_IP VPN_PSK CLIENT_LAN_SUBNET VPN_POOL_SUBNET)
 missing=()
 for var in "${REQUIRED_VARS[@]}"; do
   if [[ -z "${!var:-}" ]]; then
@@ -70,7 +73,10 @@ pass "All required variables present"
 echo "  SERVER_PUBLIC_IP = ${SERVER_PUBLIC_IP}"
 echo "  CLIENT_LAN_SUBNET = ${CLIENT_LAN_SUBNET}"
 echo "  VPN_POOL_SUBNET = ${VPN_POOL_SUBNET}"
-echo "  CLIENT_FQDN = ${CLIENT_FQDN}"
+echo "  AUTH_TYPE = ${AUTH_TYPE}"
+if [[ -n "${CLIENT_FQDN:-}" ]]; then
+  echo "  CLIENT_FQDN = ${CLIENT_FQDN} (optional, for PSK mode)"
+fi
 echo "  VPN_PSK = $(echo "${VPN_PSK}" | head -c 8)...$(echo "${VPN_PSK}" | tail -c 5)"
 echo ""
 
@@ -86,7 +92,9 @@ sanitize() {
 sanitize "SERVER_PUBLIC_IP" "${SERVER_PUBLIC_IP}" '^[0-9.]+$' "IP only"
 sanitize "VPN_POOL_SUBNET" "${VPN_POOL_SUBNET}" '^[0-9./]+$' "CIDR only"
 sanitize "CLIENT_LAN_SUBNET" "${CLIENT_LAN_SUBNET}" '^[0-9./]+$' "CIDR only"
-sanitize "CLIENT_FQDN" "${CLIENT_FQDN}" '^[a-zA-Z0-9._-]+$' "FQDN chars only"
+if [[ -n "${CLIENT_FQDN:-}" ]]; then
+  sanitize "CLIENT_FQDN" "${CLIENT_FQDN}" '^[a-zA-Z0-9._-]+$' "FQDN chars only"
+fi
 # PSK: allow base64 chars + common special chars, block shell metacharacters
 sanitize "VPN_PSK" "${VPN_PSK}" '^[A-Za-z0-9+/=@._-]+$' "base64-safe chars only"
 
@@ -130,6 +138,31 @@ sed \
 
 chmod 600 "${OUTPUT_SERVER}"
 pass "Generated: config/conf.d/vpn.conf (chmod 600)"
+
+# ── Generate EAP connection config (if AUTH_TYPE contains "eap") ──
+if [[ "${AUTH_TYPE}" == *"eap"* ]]; then
+  TEMPLATE_EAP="${REPO_ROOT}/server/swanctl/roadwarrior-eap.conf.example"
+  OUTPUT_EAP="${CONF_DIR}/roadwarrior-eap.conf"
+
+  if [[ -f "${TEMPLATE_EAP}" ]]; then
+    sed \
+      -e "s|{{SERVER_PUBLIC_IP}}|${SERVER_PUBLIC_IP}|g" \
+      -e "s|{{VPN_POOL_SUBNET}}|${VPN_POOL_SUBNET}|g" \
+      "${TEMPLATE_EAP}" > "${OUTPUT_EAP}"
+
+    chmod 600 "${OUTPUT_EAP}"
+    pass "Generated: config/conf.d/roadwarrior-eap.conf (EAP mode)"
+    echo "  EAP mode: tunnel credentials managed via API (POST /api/v1/tunnels)"
+  else
+    fail "Template not found: ${TEMPLATE_EAP}"
+  fi
+fi
+
+# ── Generate L2TP config (if AUTH_TYPE contains "l2tp") ──
+if [[ "${AUTH_TYPE}" == *"l2tp"* ]]; then
+  # xl2tpd config is baked into the Docker image; no file generation needed
+  pass "L2TP mode: xl2tpd config managed by Docker image"
+fi
 
 # ── Generate secrets file (separate from connection config) ──
 # strongSwan expects secrets in a dedicated file
