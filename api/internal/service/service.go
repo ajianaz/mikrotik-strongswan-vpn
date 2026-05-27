@@ -40,16 +40,20 @@ func (e *NotFoundError) Error() string {
 
 // Tunnel represents a single VPN tunnel stored in the vpn_tunnels table.
 type Tunnel struct {
-	ID          string          `json:"id"`
-	TunnelID    string          `json:"tunnel_id"`
-	Name        string          `json:"name"`
-	PeerIP      string          `json:"peer_ip"`
-	LocalSubnet string          `json:"local_subnet"`
-	PSK         string          `json:"psk"`
-	Status      string          `json:"status"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID           string          `json:"id"`
+	TunnelID     string          `json:"tunnel_id"`
+	Name         string          `json:"name"`
+	PeerIP       string          `json:"peer_ip"`
+	LocalSubnet  string          `json:"local_subnet"`
+	AuthType     string          `json:"auth_type"`
+	PSK          string          `json:"psk,omitempty"`
+	Username     string          `json:"username,omitempty"`
+	PasswordHash string          `json:"-"`
+	PasswordPlain string         `json:"-"` // never exposed in JSON responses
+	Status       string          `json:"status"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 // CreateTunnelInput is the user-supplied data for creating a new tunnel.
