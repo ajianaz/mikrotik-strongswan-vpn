@@ -156,19 +156,23 @@ jobs:
               FAIL=1
             fi
 
-            # Check strongSwan loaded connections
+            # Check strongSwan loaded connections (informational — 0 is OK if no config yet)
             SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" || echo "0")
             CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo "0")
             echo "  📊 Connections: $CONN_COUNT loaded, $SAS_COUNT active SAs"
 
-            # Check API healthz (read LISTEN port from .env or container inspect)
-            LISTEN_PORT=$(grep -oP 'LISTEN=\K.*' .env 2>/dev/null | tr -d '"' | head -1 || echo "8080")
-            LISTEN_PORT="${LISTEN_PORT#:}"
-            API_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${LISTEN_PORT:-8080}/healthz 2>/dev/null || echo "000")
-            if [ "$API_CODE" = "200" ]; then
-              echo "  ✅ API /healthz: $API_CODE"
-            else
-              echo "  ❌ API /healthz: $API_CODE"
+            # Check API healthz (try common ports)
+            API_CODE="000"
+            for PORT in 6060 8080; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 3 http://localhost:${PORT}/healthz 2>/dev/null || echo "000")
+              if [ "$CODE" = "200" ]; then
+                API_CODE="$CODE"
+                echo "  ✅ API /healthz: $API_CODE (port $PORT)"
+                break
+              fi
+            done
+            if [ "$API_CODE" != "200" ]; then
+              echo "  ❌ API /healthz: unreachable on ports 6060/8080"
               FAIL=1
             fi
 
