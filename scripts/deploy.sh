@@ -4,6 +4,14 @@ set -euo pipefail
 # =============================================================================
 # deploy.sh — Deploy strongSwan VPN server via Docker Compose
 # =============================================================================
+#
+# Prerequisites:
+#   1. cp .env.example .env && nano .env    (fill all required fields)
+#   2. bash scripts/validate.sh            (verify .env)
+#   3. bash scripts/setup.sh               (generate configs)
+#   4. bash scripts/deploy.sh              (THIS — build + start)
+#
+# =============================================================================
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -12,6 +20,7 @@ NC='\033[0m'
 
 pass() { echo -e "  ${GREEN}✅ $1${NC}"; }
 fail() { echo -e "  ${RED}❌ $1${NC}"; }
+warn() { echo -e "  ${YELLOW}⚠️  $1${NC}"; }
 
 # ── Find repo root ──
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,8 +44,13 @@ if [[ ! -f "${REPO_ROOT}/.env" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${REPO_ROOT}/server/swanctl/vpn.conf" ]]; then
-  fail "server/swanctl/vpn.conf not found. Run: bash scripts/setup.sh first"
+if [[ ! -f "${REPO_ROOT}/config/conf.d/vpn.conf" ]]; then
+  fail "config/conf.d/vpn.conf not found. Run: bash scripts/setup.sh first"
+  exit 1
+fi
+
+if [[ ! -f "${REPO_ROOT}/config/secret" ]]; then
+  fail "config/secret not found. Run: bash scripts/setup.sh first"
   exit 1
 fi
 
@@ -45,8 +59,15 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+# ── Pre-deploy summary ──
+echo "  Config files:"
+echo "    config/swanctl.conf  = $(test -f "${REPO_ROOT}/config/swanctl.conf" && echo "OK" || echo "MISSING")"
+echo "    config/conf.d/vpn.conf = $(test -f "${REPO_ROOT}/config/conf.d/vpn.conf" && echo "OK" || echo "MISSING")"
+echo "    config/secret        = $(test -f "${REPO_ROOT}/config/secret" && echo "OK" || echo "MISSING")"
+echo ""
+
 # ── Deploy ──
-echo "  Starting Docker Compose..."
+echo "  Building and starting Docker Compose..."
 cd "${REPO_ROOT}"
 docker compose up -d --build
 
@@ -64,26 +85,50 @@ while (( elapsed < MAX_WAIT )); do
 done
 
 if (( elapsed >= MAX_WAIT )); then
-  warn "charon daemon not ready after ${MAX_WAIT}s — checking anyway"
+  warn "charon daemon not ready after ${MAX_WAIT}s — checking logs"
 fi
 
-# ── Verify ──
+# ── Verify containers ──
 echo ""
-if docker ps --filter name=vpn-server --format '{{.Names}}' | grep -q 'vpn-server'; then
-  pass "Container vpn-server is running"
+for container in vpn-server vpn-manager; do
+  if docker ps --filter name="${container}" --format '{{.Names}}' | grep -q "${container}"; then
+    pass "Container ${container} is running"
+  else
+    fail "Container ${container} not running"
+    echo ""
+    echo "  Container logs:"
+    docker logs "${container}" --tail 20 2>&1 || true
+    exit 1
+  fi
+done
+
+# ── Show swanctl status ──
+echo ""
+echo "  --- Loaded connections ---"
+docker exec vpn-server swanctl --list-conns 2>&1 || warn "Could not list connections"
+
+echo ""
+echo "  --- Active Security Associations ---"
+sas_output="$(docker exec vpn-server swanctl --list-sas 2>&1 || true)"
+if echo "${sas_output}" | grep -q "none"; then
+  warn "No active SAs — waiting for client connection"
 else
-  fail "Container vpn-server not running"
-  echo ""
-  echo "  Container logs:"
-  docker logs vpn-server --tail 20 2>&1 || true
-  exit 1
+  echo "${sas_output}"
 fi
 
 echo ""
-echo "  Active Security Associations:"
-docker exec vpn-server swanctl --list-sas 2>&1 || echo "  (no active SAs yet — waiting for client connection)"
+echo "  --- vpn-manager API ---"
+api_check="$(docker exec vpn-manager wget -qO- http://localhost:8080/healthz 2>&1 || true)"
+if echo "${api_check}" | grep -q "ok\|healthy\|200"; then
+  pass "vpn-manager API is healthy"
+else
+  warn "vpn-manager API not responding yet (may need DB_URL configured)"
+fi
 
 echo ""
 echo -e "  ${GREEN}Deployment complete.${NC}"
-echo "  Import client/mikrotik.rsc on MikroTik to establish tunnel."
+echo ""
+echo "  Next steps:"
+echo "    1. Import client/mikrotik.rsc on MikroTik to establish tunnel"
+echo "    2. Run: bash scripts/verify.sh to check tunnel status"
 echo ""

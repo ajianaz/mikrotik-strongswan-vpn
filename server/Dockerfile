@@ -12,7 +12,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Tell the dynamic linker where to find strongSwan libraries.
 # Without this, charon can't dlopen() libstrongswan.so and plugin .so files,
 # causing: "unmet dependency: HASH_SHA1" → "initialization failed".
-# Also registered via ldconfig (below) as belt-and-suspenders.
 ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 
 # Install strongSwan — core packages only (no extra plugins).
@@ -30,8 +29,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Register /usr/lib/ipsec in the dynamic linker path.
-# Without this, charon can't dlopen() libstrongswan.so and plugin .so files,
-# causing: "unmet dependency: HASH_SHA1" → "initialization failed".
 RUN echo "/usr/lib/ipsec" > /etc/ld.so.conf.d/libstrongswan.conf \
     && ldconfig
 
@@ -60,10 +57,12 @@ RUN CHARON_BIN="" \
         done; \
     done
 
-# swanctl config directory
-RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki \
-    && touch /etc/swanctl/secret \
-    && chmod 640 /etc/swanctl/secret
+# Create swanctl directories
+RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki
+
+# Copy entrypoint (bootstraps config structure on first start + starts charon)
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Copy charon daemon config (read-only)
 COPY strongswan.conf /etc/strongswan.conf
@@ -74,12 +73,7 @@ COPY strongswan.conf /etc/strongswan.conf
 EXPOSE 500/udp 4500/udp
 
 # Healthcheck: check if charon process is alive
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start_period=5s \
     CMD pgrep -x charon >/dev/null
 
-# Copy entrypoint wrapper (diagnoses segfault cause)
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-# Start charon via wrapper
 ENTRYPOINT ["/entrypoint.sh"]

@@ -19,9 +19,13 @@
 #   • UDP 4500  — NAT-T (ESP-in-UDP for NAT traversal)
 #   • Protocol 50 — ESP (native encrypted data channel)
 #
+# CONFIG MANAGEMENT:
+#   setup.sh generates configs to ./config/ on the host.
+#   Both vpn-server and vpn-manager bind-mount ./config → /etc/swanctl.
+#   vpn-manager writes new tunnel configs to ./config/conf.d/ at runtime.
+#
 # =============================================================================
 
-# docker-compose.yml — MikroTik strongSwan VPN
 version: "3.8"
 
 services:
@@ -45,7 +49,6 @@ services:
 
   # ── strongSwan VPN Server ──────────────────────────────────────────────
   vpn-server:
-    image: ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-server:develop
     build:
       context: ./server
       dockerfile: Dockerfile
@@ -59,10 +62,10 @@ services:
       - NET_ADMIN
 
     volumes:
-      # Shared swanctl config — vpn-manager writes here, vpn-server reads here
-      - vpn-configs:/etc/swanctl
-      # NOTE: strongswan.conf is copied into the image at build time (see server/Dockerfile)
-      # No host mount needed — avoids "file not found" on fresh deploys
+      # Bind mount — setup.sh writes here, vpn-manager writes here
+      - ./config:/etc/swanctl
+      # strongswan.conf — charon daemon config (read-only)
+      - ./server/strongswan.conf:/etc/strongswan.conf:ro
 
     environment:
       - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
@@ -72,7 +75,6 @@ services:
 
   # ── VPN Manager API ────────────────────────────────────────────────────
   vpn-manager:
-    image: ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-manager:develop
     build:
       context: ./api
       dockerfile: Dockerfile
@@ -80,8 +82,8 @@ services:
     restart: unless-stopped
 
     volumes:
-      # Same shared volume as vpn-server — writes swanctl configs here
-      - vpn-configs:/etc/swanctl
+      # Same bind mount as vpn-server — shared config directory
+      - ./config:/etc/swanctl
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
     environment:
@@ -109,5 +111,4 @@ services:
       start_period: 10s
 
 volumes:
-  vpn-configs:
   postgres-data:

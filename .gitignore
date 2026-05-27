@@ -1,7 +1,13 @@
 # Secrets & generated configs (NEVER commit these)
 .env
-server/swanctl/vpn.conf
+config/conf.d/vpn.conf
+config/secret
 client/mikrotik.rsc
+
+# Keep config directory structure but ignore generated content
+config/conf.d/
+config/secret
+!config/swanctl.conf
 
 # Logs
 logs/
