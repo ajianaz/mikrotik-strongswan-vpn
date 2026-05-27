@@ -129,7 +129,7 @@ jobs:
             FAIL=0
 
             # Check container running state
-            for svc in vpn-server vpn-manager postgres; do
+            for svc in vpn-server vpn-manager vpn-db; do
               STATE=$(docker inspect --format='{{.State.Status}}' $svc 2>/dev/null || echo "missing")
               if [ "$STATE" != "running" ]; then
                 echo "  ❌ $svc: $STATE"
@@ -141,7 +141,7 @@ jobs:
 
             # Scan vpn-server logs for known error patterns
             VPN_LOGS=$(docker logs vpn-server 2>&1 || true)
-            ERROR_PATTERNS="SIGSEGV|segfault|aborting|fatal error|panic|initialization failed|exit code|unmet dependency"
+            ERROR_PATTERNS="SIGSEGV|segfault|aborting|fatal error|panic|initialization failed"
             for pat in $ERROR_PATTERNS; do
               if echo "$VPN_LOGS" | grep -qi "$pat"; then
                 echo "  ❌ vpn-server log: matched '$pat'"

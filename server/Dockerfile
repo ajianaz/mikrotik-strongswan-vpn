@@ -84,6 +84,14 @@ RUN cd /usr/lib/ipsec/plugins \
         libstrongswan-xcbc.so \
         libstrongswan-kdf.so \
         libstrongswan-drbg.so \
+        libstrongswan-forecast.so \
+        libstrongswan-farp.so \
+        libstrongswan-bypass-lan.so \
+        libstrongswan-resolve.so \
+        libstrongswan-counters.so \
+        libstrongswan-revocation.so \
+        libstrongswan-constraints.so \
+        libstrongswan-attr.so \
     && echo "Remaining plugins:" && ls *.so | sort
 
 # Copy dummy updown script (charon calls on SA events, default does nothing)
