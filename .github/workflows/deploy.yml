@@ -126,6 +126,9 @@ jobs:
             echo ""
             echo ">>> [5/5] Log analysis..."
 
+            # Give vpn-manager a few seconds to finish startup
+            sleep 5
+
             FAIL=0
 
             # Check container running state
