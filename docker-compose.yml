@@ -35,6 +35,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-vpnmgr}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks:
+      - vpn-strongswan
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vpnuser} -d ${POSTGRES_DB:-vpnmgr}"]
       interval: 10s
@@ -60,8 +62,6 @@ services:
     volumes:
       # Shared swanctl config — vpn-manager writes here, vpn-server reads here
       - vpn-configs:/etc/swanctl
-      # Shared ppp chap-secrets — vpn-manager writes, xl2tpd reads
-      - vpn-ppp:/etc/ppp
       # NOTE: strongswan.conf is copied into the image at build time (see server/Dockerfile)
       # No host mount needed — avoids "file not found" on fresh deploys
 
@@ -81,8 +81,6 @@ services:
     volumes:
       # Same shared volume as vpn-server — writes swanctl configs here
       - vpn-configs:/etc/swanctl
-      # Shared ppp chap-secrets — vpn-manager writes, xl2tpd reads
-      - vpn-ppp:/etc/ppp
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
     environment:
@@ -92,10 +90,13 @@ services:
       - VPN_CONTAINER=vpn-server
       - VPN_CONFIG_DIR=/etc/swanctl/conf.d
       - VPN_SECRET_FILE=/etc/swanctl/secret
-      - VPN_L2TP_SECRET_FILE=/etc/ppp/chap-secrets
 
     ports:
       - "${LISTEN:-8080}"
+
+    networks:
+      - hermes-net
+      - vpn-strongswan
 
     depends_on:
       postgres:
@@ -104,14 +105,18 @@ services:
         condition: service_healthy
 
     healthcheck:
-      # $$ = Docker Compose escape → $ inside container shell → shell expands ${LISTEN#:}
-      test: ["CMD-SHELL", "PORT=$${LISTEN#:}; wget --spider -q http://localhost:$${PORT:-8080}/healthz || exit 1"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${LISTEN_PORT:-8080}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 10s
+
+networks:
+  hermes-net:
+    external: true
+  vpn-strongswan:
+    driver: bridge
 
 volumes:
   vpn-configs:
   postgres-data:
-  vpn-ppp:
