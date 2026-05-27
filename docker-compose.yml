@@ -5,7 +5,7 @@
 # CRYPTO SUITE:
 #   IKE:      aes256-sha256-ecp384  (ECDH with P-384)
 #   ESP:      aes256-sha256-ecp384  (AES-256-CBC + HMAC-SHA2-256 + DH ECP384)
-#   Auth:     PSK (pre-shared key)
+#   Auth:     EAP-MSCHAPv2 + L2TP (credentials via API)
 #   Version:  IKEv2 ONLY
 #
 # COMPATIBILITY: RouterOS 6.49.x AND 7.x
@@ -19,12 +19,9 @@
 #   • UDP 4500  — NAT-T (ESP-in-UDP for NAT traversal)
 #   • Protocol 50 — ESP (native encrypted data channel)
 #
-# CONFIG MANAGEMENT:
-#   setup.sh generates configs to ./config/ on the host.
-#   Both vpn-server and vpn-manager bind-mount ./config → /etc/swanctl.
-#   vpn-manager writes new tunnel configs to ./config/conf.d/ at runtime.
-#
 # =============================================================================
+
+version: "3.8"
 
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────
@@ -58,20 +55,22 @@ services:
       - NET_ADMIN
 
     environment:
-      - VPN_POOL_RANGE=${VPN_POOL_RANGE:-10.10.10.2-10.10.10.254}
-      - VPN_POOL_LOCAL_IP=${VPN_POOL_LOCAL_IP:-10.10.10.1}
-      - LISTEN_PORT=${LISTEN_PORT:-8080}
+      - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
 
     volumes:
-      # Bind mount — setup.sh writes here, vpn-manager writes here
-      - ./config:/etc/swanctl
-      # strongswan.conf — charon daemon config (read-only)
-      - ./server/strongswan.conf:/etc/strongswan.conf:ro
+      # Shared swanctl config — vpn-manager writes here, vpn-server reads here
+      - vpn-configs:/etc/swanctl
       # Shared ppp chap-secrets — vpn-manager writes, xl2tpd reads
       - vpn-ppp:/etc/ppp
+      # NOTE: strongswan.conf is copied into the image at build time (see server/Dockerfile)
+      # No host mount needed — avoids "file not found" on fresh deploys
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -x charon >/dev/null"]
+      test: ["CMD-SHELL", "swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # ── VPN Manager API ────────────────────────────────────────────────────
   vpn-manager:
@@ -80,8 +79,8 @@ services:
     restart: unless-stopped
 
     volumes:
-      # Same bind mount as vpn-server — shared config directory
-      - ./config:/etc/swanctl
+      # Same shared volume as vpn-server — writes swanctl configs here
+      - vpn-configs:/etc/swanctl
       # Shared ppp chap-secrets — vpn-manager writes, xl2tpd reads
       - vpn-ppp:/etc/ppp
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -90,7 +89,6 @@ services:
       - DB_URL=postgres://${POSTGRES_USER:-vpnuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vpnmgr}?sslmode=disable
       - API_KEY=${API_KEY}
       - LISTEN=${LISTEN:-:8080}
-      - LISTEN_PORT=${LISTEN_PORT:-8080}
       - VPN_CONTAINER=vpn-server
       - VPN_CONFIG_DIR=/etc/swanctl/conf.d
       - VPN_SECRET_FILE=/etc/swanctl/secret
@@ -103,15 +101,17 @@ services:
       postgres:
         condition: service_healthy
       vpn-server:
-        condition: service_started
+        condition: service_healthy
 
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:6060/healthz"]
-      interval: 15s
+      # $$ = Docker Compose escape → $ inside container shell → shell expands ${LISTEN#:}
+      test: ["CMD-SHELL", "PORT=$${LISTEN#:}; wget --spider -q http://localhost:$${PORT:-8080}/healthz || exit 1"]
+      interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
 
 volumes:
+  vpn-configs:
   postgres-data:
   vpn-ppp:

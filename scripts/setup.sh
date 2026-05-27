@@ -6,20 +6,26 @@ set -euo pipefail
 # =============================================================================
 #
 # Output:
-#   config/swanctl.conf    — include loader (static, always exists)
-#   config/conf.d/vpn.conf — connection config (generated from template)
-#   config/secret          — PSK secrets (generated, chmod 640)
-#   client/mikrotik.rsc    — MikroTik import script (generated)
+#   config/swanctl.conf              — include loader (static, always exists)
+#   config/conf.d/roadwarrior-eap.conf — EAP connection config (generated from template)
 #
-# These files are bind-mounted into vpn-server and vpn-manager containers.
+# With named volumes (vpn-configs), configs are copied into the Docker volume
+# via deploy.sh after first compose up. vpn-manager API writes runtime configs
+# directly into the shared volume at /etc/swanctl/conf.d/.
+#
+# Auth credentials (EAP users, L2TP secrets) are managed via the API:
+#   POST /api/v1/tunnels
+#
 # =============================================================================
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 pass() { echo -e "  ${GREEN}✅ $1${NC}"; }
 fail() { echo -e "  ${RED}❌ $1${NC}"; }
+warn() { echo -e "  ${YELLOW}⚠️  $1${NC}"; }
 
 # ── Find repo root ──
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,7 +62,7 @@ set +a
 AUTH_TYPE="${AUTH_TYPE:-eap}"
 
 # ── Validate required vars ──
-REQUIRED_VARS=(SERVER_PUBLIC_IP VPN_PSK CLIENT_LAN_SUBNET VPN_POOL_SUBNET)
+REQUIRED_VARS=(SERVER_PUBLIC_IP VPN_POOL_SUBNET)
 missing=()
 for var in "${REQUIRED_VARS[@]}"; do
   if [[ -z "${!var:-}" ]]; then
@@ -71,13 +77,8 @@ fi
 
 pass "All required variables present"
 echo "  SERVER_PUBLIC_IP = ${SERVER_PUBLIC_IP}"
-echo "  CLIENT_LAN_SUBNET = ${CLIENT_LAN_SUBNET}"
 echo "  VPN_POOL_SUBNET = ${VPN_POOL_SUBNET}"
 echo "  AUTH_TYPE = ${AUTH_TYPE}"
-if [[ -n "${CLIENT_FQDN:-}" ]]; then
-  echo "  CLIENT_FQDN = ${CLIENT_FQDN} (optional, for PSK mode)"
-fi
-echo "  VPN_PSK = $(echo "${VPN_PSK}" | head -c 8)...$(echo "${VPN_PSK}" | tail -c 5)"
 echo ""
 
 # ── Sanitize inputs before sed (prevent injection) ──
@@ -91,12 +92,6 @@ sanitize() {
 
 sanitize "SERVER_PUBLIC_IP" "${SERVER_PUBLIC_IP}" '^[0-9.]+$' "IP only"
 sanitize "VPN_POOL_SUBNET" "${VPN_POOL_SUBNET}" '^[0-9./]+$' "CIDR only"
-sanitize "CLIENT_LAN_SUBNET" "${CLIENT_LAN_SUBNET}" '^[0-9./]+$' "CIDR only"
-if [[ -n "${CLIENT_FQDN:-}" ]]; then
-  sanitize "CLIENT_FQDN" "${CLIENT_FQDN}" '^[a-zA-Z0-9._-]+$' "FQDN chars only"
-fi
-# PSK: allow base64 chars + common special chars, block shell metacharacters
-sanitize "VPN_PSK" "${VPN_PSK}" '^[A-Za-z0-9+/=@._-]+$' "base64-safe chars only"
 
 pass "Input sanitization passed"
 echo ""
@@ -120,24 +115,6 @@ SWANCTL
 else
   pass "config/swanctl.conf already exists (skipped)"
 fi
-
-# ── Generate server connection config ──
-TEMPLATE_SERVER="${REPO_ROOT}/server/swanctl/vpn.conf.example"
-OUTPUT_SERVER="${CONF_DIR}/vpn.conf"
-
-if [[ ! -f "${TEMPLATE_SERVER}" ]]; then
-  fail "Template not found: ${TEMPLATE_SERVER}"
-  exit 1
-fi
-
-sed \
-  -e "s|{{SERVER_PUBLIC_IP}}|${SERVER_PUBLIC_IP}|g" \
-  -e "s|{{VPN_PSK}}|${VPN_PSK}|g" \
-  -e "s|{{VPN_POOL_SUBNET}}|${VPN_POOL_SUBNET}|g" \
-  "${TEMPLATE_SERVER}" > "${OUTPUT_SERVER}"
-
-chmod 600 "${OUTPUT_SERVER}"
-pass "Generated: config/conf.d/vpn.conf (chmod 600)"
 
 # ── Generate EAP connection config (if AUTH_TYPE contains "eap") ──
 if [[ "${AUTH_TYPE}" == *"eap"* ]]; then
@@ -165,43 +142,28 @@ if [[ "${AUTH_TYPE}" == *"l2tp"* ]]; then
   pass "L2TP mode: xl2tpd config managed by Docker image"
 fi
 
-# ── Generate secrets file (separate from connection config) ──
-# strongSwan expects secrets in a dedicated file
-SECRET_FILE="${CONFIG_DIR}/secret"
-cat > "${SECRET_FILE}" << SECRET
-# strongSwan secrets — PSK for IKEv2 roadwarrior
-# Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)
-ike-psk {
-    id-1 = ${SERVER_PUBLIC_IP}
-    id-2 = %any
-    secret = "${VPN_PSK}"
-}
-SECRET
-chmod 640 "${SECRET_FILE}"
-pass "Generated: config/secret (chmod 640)"
+# ── Sync configs to Docker volume ──
+# Named volumes need explicit copy — bootstrap via temporary container
+echo ""
+echo "  Syncing configs to Docker volume (vpn-configs)..."
 
-# ── Generate MikroTik client config ──
-TEMPLATE_CLIENT="${REPO_ROOT}/client/mikrotik.rsc.example"
-OUTPUT_CLIENT="${REPO_ROOT}/client/mikrotik.rsc"
-
-if [[ -f "${TEMPLATE_CLIENT}" ]]; then
-  sed \
-    -e "s|{{SERVER_PUBLIC_IP}}|${SERVER_PUBLIC_IP}|g" \
-    -e "s|{{VPN_PSK}}|${VPN_PSK}|g" \
-    -e "s|{{CLIENT_LAN_SUBNET}}|${CLIENT_LAN_SUBNET}|g" \
-    -e "s|{{CLIENT_FQDN}}|${CLIENT_FQDN}|g" \
-    -e "s|{{VPN_POOL_SUBNET}}|${VPN_POOL_SUBNET}|g" \
-    "${TEMPLATE_CLIENT}" > "${OUTPUT_CLIENT}"
-
-  chmod 600 "${OUTPUT_CLIENT}"
-  pass "Generated: client/mikrotik.rsc (chmod 600)"
+if docker volume inspect vpn-configs >/dev/null 2>&1; then
+  docker run --rm \
+    -v "vpn-configs:/etc/swanctl" \
+    -v "${CONFIG_DIR}:/host-config:ro" \
+    alpine sh -c "
+      cp -a /host-config/. /etc/swanctl/ 2>/dev/null || true
+      chmod 600 /etc/swanctl/conf.d/*.conf 2>/dev/null || true
+    "
+  pass "Configs synced to vpn-configs volume"
 else
-  fail "Template not found: ${TEMPLATE_CLIENT}"
+  warn "vpn-configs volume not created yet — configs will be synced on first deploy"
 fi
 
 echo ""
 echo -e "  ${GREEN}Setup complete.${NC}"
-echo "  Config files ready at: ${CONFIG_DIR}/"
+echo "  Local configs: ${CONFIG_DIR}/"
+echo "  Volume sync: vpn-configs → /etc/swanctl (inside containers)"
 echo ""
 echo "  Next step: bash scripts/deploy.sh"
 echo ""
