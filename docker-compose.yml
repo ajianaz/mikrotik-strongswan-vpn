@@ -26,8 +26,6 @@
 #
 # =============================================================================
 
-version: "3.8"
-
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────
   postgres:
@@ -49,9 +47,7 @@ services:
 
   # ── strongSwan VPN Server ──────────────────────────────────────────────
   vpn-server:
-    build:
-      context: ./server
-      dockerfile: Dockerfile
+    image: ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-server:develop
     container_name: vpn-server
     restart: unless-stopped
 
@@ -67,17 +63,12 @@ services:
       # strongswan.conf — charon daemon config (read-only)
       - ./server/strongswan.conf:/etc/strongswan.conf:ro
 
-    environment:
-      - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
-
     healthcheck:
       test: ["CMD-SHELL", "pgrep -x charon >/dev/null"]
 
   # ── VPN Manager API ────────────────────────────────────────────────────
   vpn-manager:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: ghcr.io/ajianaz/mikrotik-strongswan-vpn/vpn-manager:develop
     container_name: vpn-manager
     restart: unless-stopped
 

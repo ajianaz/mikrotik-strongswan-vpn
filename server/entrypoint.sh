@@ -43,4 +43,4 @@ echo "[entrypoint] === Executing charon ===" >&2
 # ── Start charon ──
 # ARM Ubuntu 24.04: charon binary is at /usr/lib/ipsec/charon, symlinked to
 # /usr/local/bin/charon during build. Debug flags help diagnose init failures.
-exec /usr/local/bin/charon --debug-lib 4 --debug-net 4 --debug-knl 4 "$@"
+exec /usr/local/bin/charon "$@"

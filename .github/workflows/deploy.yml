@@ -111,12 +111,16 @@ jobs:
             docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 
             echo ""
-            echo "=== vpn-server (last 40 lines) ==="
-            docker logs vpn-server 2>&1 | tail -40 || true
+            echo "=== vpn-server (first 30 lines = init) ==="
+            docker logs vpn-server 2>&1 | head -30 || true
 
             echo ""
-            echo "=== vpn-manager (last 20 lines) ==="
-            docker logs vpn-manager 2>&1 | tail -20 || true
+            echo "=== vpn-server (last 15 lines = crash) ==="
+            docker logs vpn-server 2>&1 | tail -15 || true
+
+            echo ""
+            echo "=== vpn-manager (last 10 lines) ==="
+            docker logs vpn-manager 2>&1 | tail -10 || true
 
             # ── 5. Log analysis + verdict ──────────────
             echo ""
