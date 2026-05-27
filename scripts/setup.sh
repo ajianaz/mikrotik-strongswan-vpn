@@ -155,6 +155,7 @@ if [[ "${AUTH_TYPE}" == *"eap"* ]]; then
     echo "  EAP mode: tunnel credentials managed via API (POST /api/v1/tunnels)"
   else
     fail "Template not found: ${TEMPLATE_EAP}"
+    exit 1
   fi
 fi
 

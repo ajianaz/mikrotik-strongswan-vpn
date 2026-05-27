@@ -57,6 +57,10 @@ services:
     cap_add:
       - NET_ADMIN
 
+    environment:
+      - VPN_POOL_RANGE=${VPN_POOL_RANGE:-10.10.10.2-10.10.10.254}
+      - VPN_POOL_LOCAL_IP=${VPN_POOL_LOCAL_IP:-10.10.10.1}
+
     volumes:
       # Bind mount — setup.sh writes here, vpn-manager writes here
       - ./config:/etc/swanctl

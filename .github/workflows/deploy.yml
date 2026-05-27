@@ -177,7 +177,7 @@ jobs:
             fi
 
             # Check API healthz via docker exec (bypasses port mapping)
-            if docker exec vpn-manager wget -q -O /dev/null http://localhost:6060/healthz 2>/dev/null; then
+            if docker exec vpn-manager wget -q -O /dev/null http://localhost:8080/healthz 2>/dev/null; then
               echo "  ✅ API /healthz: 200 (via docker exec)"
             else
               echo "  ❌ API /healthz: unreachable"

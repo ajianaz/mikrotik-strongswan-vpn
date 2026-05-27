@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-API_URL="http://localhost:6060/api/v1"
+API_URL="http://localhost:8080/api/v1"
 LOG_TAG="updown"
 
 log_msg() {
@@ -29,10 +29,17 @@ case "${PLUTO_VERB:-}" in
 
         log_msg "UP: peer=${PEER_ID} vip=${VIRTUAL_IP}"
         
-        # Query API for tunnel info
-        TUNNEL_JSON=$(curl -sf "${API_URL}/tunnels?username=${PEER_ID}" 2>/dev/null || echo "")
+        # Query API for tunnel info (retry 3 times with 2s delay)
+        for attempt in 1 2 3; do
+            TUNNEL_JSON=$(curl -sf --max-time 3 "${API_URL}/tunnels?username=${PEER_ID}" 2>/dev/null || echo "")
+            if [[ -n "$TUNNEL_JSON" ]]; then
+                break
+            fi
+            log_msg "UP: API unreachable (attempt ${attempt}/3), retrying..."
+            sleep 2
+        done
         if [[ -z "$TUNNEL_JSON" ]]; then
-            log_msg "UP: could not query API for ${PEER_ID}"
+            log_msg "UP: ERROR API unreachable for ${PEER_ID} — routes NOT added"
             exit 0
         fi
         
