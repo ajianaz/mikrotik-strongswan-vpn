@@ -16,6 +16,9 @@ ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 
 # Install strongSwan — core packages only (no extra plugins).
 # libcharon-extra-plugins provides EAP, RADIUS, TNC etc. which cause segfault.
+# Core packages (libstrongswan + strongswan-charon + strongswan-libcharon)
+# provide all plugins needed for IKEv2 PSK: aes, sha1, sha2, nonce,
+# random, hmac, pubkey, x509, kernel-netlink, socket-default, vici.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libstrongswan \
@@ -25,6 +28,7 @@ RUN apt-get update \
         strongswan-pki \
         iproute2 \
         iptables \
+        procps \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,6 +38,53 @@ RUN echo "/usr/lib/ipsec" > /etc/ld.so.conf.d/libstrongswan.conf \
 
 # Remove all package-installed plugin config files.
 RUN rm -rf /etc/strongswan.d/
+
+# ── ARM Ubuntu 24.04 CRITICAL FIX ──────────────────────────────────────
+# charon on ARM IGNORES load_modular=no — it dlopen()s ALL .so files in
+# /usr/lib/ipsec/plugins/. Extra plugins (EAP, TNC, xauth) cause SIGSEGV.
+# Fix: keep only the minimal set needed for IKEv2 PSK + swanctl + updown.
+#
+# Required: aes sha1 sha2 md5 random nonce hmac mgf1 gmp pubkey pkcs1
+#           x509 kernel-netlink socket-default updown vici swanctl stroke
+# Keep:    fips-prf rc2 sha384 sha512 attr constraints revocation resolve
+#          bypass-lan forecast farp counters (harmless, core deps)
+# Remove:  ALL eap-* tnc-* xauth-* radius-* dhcp-* led-* lookip-*
+#          addrblock unity error-notify certexpire dnskey sshkey
+#          pkcs7 pkcs12 pgp pem pkcs8 xcbc kdf drbg (unused, reduce surface)
+RUN cd /usr/lib/ipsec/plugins \
+    && rm -f \
+        libstrongswan-eap-identity.so \
+        libstrongswan-eap-md5.so \
+        libstrongswan-eap-aka.so \
+        libstrongswan-eap-gtc.so \
+        libstrongswan-eap-dynamic.so \
+        libstrongswan-eap-radius.so \
+        libstrongswan-eap-tls.so \
+        libstrongswan-eap-ttls.so \
+        libstrongswan-eap-peap.so \
+        libstrongswan-eap-tnc.so \
+        libstrongswan-xauth-eap.so \
+        libstrongswan-xauth-pam.so \
+        libstrongswan-tnc-tnccs.so \
+        libstrongswan-ha.so \
+        libstrongswan-dhcp.so \
+        libstrongswan-led.so \
+        libstrongswan-lookip.so \
+        libstrongswan-error-notify.so \
+        libstrongswan-certexpire.so \
+        libstrongswan-addrblock.so \
+        libstrongswan-unity.so \
+        libstrongswan-dnskey.so \
+        libstrongswan-sshkey.so \
+        libstrongswan-pem.so \
+        libstrongswan-pkcs7.so \
+        libstrongswan-pkcs12.so \
+        libstrongswan-pgp.so \
+        libstrongswan-pkcs8.so \
+        libstrongswan-xcbc.so \
+        libstrongswan-kdf.so \
+        libstrongswan-drbg.so \
+    && echo "Remaining plugins:" && ls *.so | sort
 
 # Copy dummy updown script (charon calls on SA events, default does nothing)
 COPY updown.sh /usr/lib/ipsec/updown.sh
