@@ -26,6 +26,8 @@ RUN apt-get update \
         strongswan-libcharon \
         strongswan-swanctl \
         strongswan-pki \
+        xl2tpd \
+        ppp \
         iproute2 \
         iptables \
         procps \
@@ -91,13 +93,18 @@ RUN chmod +x /entrypoint.sh
 # Copy charon daemon config (read-only)
 COPY strongswan.conf /etc/strongswan.conf
 
+# Copy xl2tpd + pppd config (read-only)
+COPY xl2tpd.conf /etc/xl2tpd/xl2tpd.conf
+COPY options.xl2tpd /etc/ppp/options.xl2tpd
+
 # Expose IKEv2 ports (documented — actual binding via network_mode: host)
 # UDP 500  = IKE (key exchange)
 # UDP 4500 = NAT-T (ESP-in-UDP)
-EXPOSE 500/udp 4500/udp
+# UDP 1701 = L2TP
+EXPOSE 500/udp 4500/udp 1701/udp
 
 # Healthcheck: check if charon process is alive
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
-    CMD pgrep -x charon >/dev/null
+    CMD pgrep -x charon >/dev/null && pgrep -x xl2tpd >/dev/null
 
 ENTRYPOINT ["/entrypoint.sh"]

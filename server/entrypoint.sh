@@ -40,6 +40,18 @@ echo "[entrypoint] === strongswan.conf ===" >&2
 cat /etc/strongswan.conf >&2
 echo "[entrypoint] === Executing charon ===" >&2
 
+# ── Bootstrap xl2tpd / pppd ──
+mkdir -p /var/run/xl2tpd
+if [[ ! -f /etc/ppp/chap-secrets ]]; then
+  touch /etc/ppp/chap-secrets
+  chmod 640 /etc/ppp/chap-secrets
+  echo "[entrypoint] Created empty /etc/ppp/chap-secrets"
+fi
+
+# ── Start xl2tpd in background ──
+echo "[entrypoint] Starting xl2tpd..." >&2
+xl2tpd -D &
+
 # ── Start charon ──
 # ARM Ubuntu 24.04: charon binary is at /usr/lib/ipsec/charon, symlinked to
 # /usr/local/bin/charon during build. Debug flags help diagnose init failures.

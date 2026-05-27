@@ -1,0 +1,10 @@
+name = l2tp-vpn
+ms-dns = 10.10.10.1
+nodefaultroute
+debug
+lock
+nobsdcomp
+nopcomp
+noaccomp
+mtu 1400
+mru 1400
