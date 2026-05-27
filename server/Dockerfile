@@ -29,6 +29,7 @@ RUN apt-get update \
         iproute2 \
         iptables \
         procps \
+        binutils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -41,57 +42,17 @@ RUN rm -rf /etc/strongswan.d/
 
 # ── ARM Ubuntu 24.04 CRITICAL FIX ──────────────────────────────────────
 # charon on ARM IGNORES load_modular=no — it dlopen()s ALL .so files in
-# /usr/lib/ipsec/plugins/. Extra plugins (EAP, TNC, xauth) cause SIGSEGV.
-# Fix: keep only the minimal set needed for IKEv2 PSK + swanctl + updown.
+# /usr/lib/ipsec/plugins/. Extra plugins cause SIGSEGV during thread init.
 #
-# Required: aes sha1 sha2 md5 random nonce hmac mgf1 gmp pubkey pkcs1
-#           x509 kernel-netlink socket-default updown vici swanctl stroke
-# Keep:    fips-prf rc2 sha384 sha512 attr constraints revocation resolve
-#          bypass-lan forecast farp counters (harmless, core deps)
-# Remove:  ALL eap-* tnc-* xauth-* radius-* dhcp-* led-* lookip-*
-#          addrblock unity error-notify certexpire dnskey sshkey
-#          pkcs7 pkcs12 pgp pem pkcs8 xcbc kdf drbg (unused, reduce surface)
+# Fix: remove ALL plugins, keep ONLY what's needed for IKEv2 PSK + swanctl.
+#
+# Keep (17): aes sha1 sha2 sha384 sha512 md5 mgf1 random nonce hmac
+#            gmp fips-prf rc2 pubkey pkcs1 x509 kernel-netlink
+#            socket-default vici updown swanctl
 RUN cd /usr/lib/ipsec/plugins \
-    && rm -f \
-        libstrongswan-eap-identity.so \
-        libstrongswan-eap-md5.so \
-        libstrongswan-eap-aka.so \
-        libstrongswan-eap-gtc.so \
-        libstrongswan-eap-dynamic.so \
-        libstrongswan-eap-radius.so \
-        libstrongswan-eap-tls.so \
-        libstrongswan-eap-ttls.so \
-        libstrongswan-eap-peap.so \
-        libstrongswan-eap-tnc.so \
-        libstrongswan-xauth-eap.so \
-        libstrongswan-xauth-pam.so \
-        libstrongswan-tnc-tnccs.so \
-        libstrongswan-ha.so \
-        libstrongswan-dhcp.so \
-        libstrongswan-led.so \
-        libstrongswan-lookip.so \
-        libstrongswan-error-notify.so \
-        libstrongswan-certexpire.so \
-        libstrongswan-addrblock.so \
-        libstrongswan-unity.so \
-        libstrongswan-dnskey.so \
-        libstrongswan-sshkey.so \
-        libstrongswan-pem.so \
-        libstrongswan-pkcs7.so \
-        libstrongswan-pkcs12.so \
-        libstrongswan-pgp.so \
-        libstrongswan-pkcs8.so \
-        libstrongswan-xcbc.so \
-        libstrongswan-kdf.so \
-        libstrongswan-drbg.so \
-        libstrongswan-forecast.so \
-        libstrongswan-farp.so \
-        libstrongswan-bypass-lan.so \
-        libstrongswan-resolve.so \
-        libstrongswan-counters.so \
-        libstrongswan-revocation.so \
-        libstrongswan-constraints.so \
-        libstrongswan-attr.so \
+    && ls *.so | grep -v -E \
+        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl)\.so$' \
+    | xargs rm -f \
     && echo "Remaining plugins:" && ls *.so | sort
 
 # Copy dummy updown script (charon calls on SA events, default does nothing)

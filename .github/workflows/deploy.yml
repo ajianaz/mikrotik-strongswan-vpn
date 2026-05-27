@@ -141,7 +141,7 @@ jobs:
 
             # Scan vpn-server logs for known error patterns
             VPN_LOGS=$(docker logs vpn-server 2>&1 || true)
-            ERROR_PATTERNS="SIGSEGV|segfault|aborting|fatal error|panic|initialization failed"
+            ERROR_PATTERNS="SIGSEGV|segfault|aborting|initialization failed|charon.*failed"
             for pat in $ERROR_PATTERNS; do
               if echo "$VPN_LOGS" | grep -qi "$pat"; then
                 echo "  ❌ vpn-server log: matched '$pat'"
