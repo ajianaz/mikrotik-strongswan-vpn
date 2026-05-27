@@ -72,11 +72,17 @@ jobs:
                 echo "  Auto-added LISTEN_PORT=${PORT} to .env"
               fi
             fi
+            echo "  .env LISTEN_PORT=$(grep '^LISTEN_PORT=' .env 2>/dev/null | cut -d= -f2)"
+            echo "  .env LISTEN=$(grep '^LISTEN=' .env 2>/dev/null | cut -d= -f2)"
 
             # ── 2. Deploy ──────────────────────────────
             echo ""
             echo ">>> [2/5] Restarting services..."
             docker compose up -d --remove-orphans --force-recreate
+
+            # Debug: show actual healthcheck config
+            echo "  vpn-manager healthcheck:"
+            docker inspect vpn-manager --format='{{.Config.Healthcheck.Test}}' 2>/dev/null || true
 
             # ── 3. Health check polling loop ───────────
             echo ""
