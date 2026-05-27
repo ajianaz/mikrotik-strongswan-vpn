@@ -161,8 +161,10 @@ jobs:
             CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo "0")
             echo "  📊 Connections: $CONN_COUNT loaded, $SAS_COUNT active SAs"
 
-            # Check API healthz
-            API_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/healthz 2>/dev/null || echo "000")
+            # Check API healthz (read LISTEN port from .env or container inspect)
+            LISTEN_PORT=$(grep -oP 'LISTEN=\K.*' .env 2>/dev/null | tr -d '"' | head -1 || echo "8080")
+            LISTEN_PORT="${LISTEN_PORT#:}"
+            API_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:${LISTEN_PORT:-8080}/healthz 2>/dev/null || echo "000")
             if [ "$API_CODE" = "200" ]; then
               echo "  ✅ API /healthz: $API_CODE"
             else
