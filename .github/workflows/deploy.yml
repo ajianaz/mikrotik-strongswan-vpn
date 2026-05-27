@@ -43,7 +43,7 @@ jobs:
             echo "Deploying to DEV"
           fi
 
-      - name: Deploy via SSH
+      - name: Deploy & Verify
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ env.DEPLOY_HOST }}
@@ -53,22 +53,130 @@ jobs:
           script: |
             cd ${{ steps.path.outputs.target }}
 
-            echo "=== Pulling latest code ==="
-            git pull
+            echo "========================================"
+            echo " DEPLOY: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "========================================"
 
-            echo "=== Pulling latest images ==="
+            # ── 1. Pull code + images ──────────────────
+            echo ""
+            echo ">>> [1/5] Pulling latest code + images..."
+            git pull
             docker compose pull
 
-            echo "=== Restarting services ==="
+            # ── 2. Deploy ──────────────────────────────
+            echo ""
+            echo ">>> [2/5] Restarting services..."
             docker compose up -d --remove-orphans --force-recreate
 
-            echo "=== Waiting for containers ==="
-            sleep 10
+            # ── 3. Health check polling loop ───────────
+            echo ""
+            echo ">>> [3/5] Health check (polling up to 90s)..."
+            MAX_WAIT=90
+            INTERVAL=10
+            ELAPSED=0
+            VPN_OK=false
+            MGR_OK=false
 
-            echo "=== Container status ==="
-            docker compose ps
+            while [ $ELAPSED -lt $MAX_WAIT ]; do
+              sleep $INTERVAL
+              ELAPSED=$((ELAPSED + INTERVAL))
 
-            echo "=== vpn-server logs ==="
-            docker logs vpn-server 2>&1 | tail -30 || true
+              # Check vpn-server health
+              VPN_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' vpn-server 2>/dev/null || echo "missing")
+              if [ "$VPN_HEALTH" = "healthy" ]; then
+                VPN_OK=true
+              fi
 
-            echo "=== Deploy complete ==="
+              # Check vpn-manager health
+              MGR_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' vpn-manager 2>/dev/null || echo "missing")
+              if [ "$MGR_HEALTH" = "healthy" ]; then
+                MGR_OK=true
+              fi
+
+              STATUS_LINE="[${ELAPSED}s] vpn-server=${VPN_HEALTH:-N/A} vpn-manager=${MGR_HEALTH:-N/A}"
+              echo "  $STATUS_LINE"
+
+              if $VPN_OK && $MGR_OK; then
+                echo "  ✅ All services healthy at ${ELAPSED}s"
+                break
+              fi
+            done
+
+            # ── 4. Collect logs ────────────────────────
+            echo ""
+            echo ">>> [4/5] Collecting logs..."
+
+            echo ""
+            echo "=== Container Status ==="
+            docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
+
+            echo ""
+            echo "=== vpn-server (last 40 lines) ==="
+            docker logs vpn-server 2>&1 | tail -40 || true
+
+            echo ""
+            echo "=== vpn-manager (last 20 lines) ==="
+            docker logs vpn-manager 2>&1 | tail -20 || true
+
+            # ── 5. Log analysis + verdict ──────────────
+            echo ""
+            echo ">>> [5/5] Log analysis..."
+
+            FAIL=0
+
+            # Check container running state
+            for svc in vpn-server vpn-manager postgres; do
+              STATE=$(docker inspect --format='{{.State.Status}}' $svc 2>/dev/null || echo "missing")
+              if [ "$STATE" != "running" ]; then
+                echo "  ❌ $svc: $STATE"
+                FAIL=1
+              else
+                echo "  ✅ $svc: running"
+              fi
+            done
+
+            # Scan vpn-server logs for known error patterns
+            VPN_LOGS=$(docker logs vpn-server 2>&1 || true)
+            ERROR_PATTERNS="SIGSEGV|segfault|aborting|fatal|panic|initialization failed|exit 139|exit 66|unmet dependency"
+            for pat in $ERROR_PATTERNS; do
+              if echo "$VPN_LOGS" | grep -qi "$pat"; then
+                echo "  ❌ vpn-server log: matched '$pat'"
+                FAIL=1
+              fi
+            done
+
+            # Scan vpn-manager logs for errors
+            MGR_LOGS=$(docker logs vpn-manager 2>&1 || true)
+            if echo "$MGR_LOGS" | grep -qi "fatal\|panic\|listen.*error\|database.*error"; then
+              echo "  ❌ vpn-manager log: error detected"
+              FAIL=1
+            fi
+
+            # Check strongSwan loaded connections
+            SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" || echo "0")
+            CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo "0")
+            echo "  📊 Connections: $CONN_COUNT loaded, $SAS_COUNT active SAs"
+
+            # Check API healthz
+            API_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/healthz 2>/dev/null || echo "000")
+            if [ "$API_CODE" = "200" ]; then
+              echo "  ✅ API /healthz: $API_CODE"
+            else
+              echo "  ❌ API /healthz: $API_CODE"
+              FAIL=1
+            fi
+
+            # ── Verdict ────────────────────────────────
+            echo ""
+            if [ $FAIL -eq 0 ]; then
+              echo "========================================="
+              echo " ✅ DEPLOY SUCCESSFUL"
+              echo " All services running, no errors detected"
+              echo "========================================="
+            else
+              echo "========================================="
+              echo " ❌ DEPLOY HAS ISSUES"
+              echo " Check errors above"
+              echo "========================================="
+              exit 1
+            fi
