@@ -49,7 +49,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 			name         TEXT NOT NULL,
 			peer_ip      INET NOT NULL,
 			local_subnet CIDR NOT NULL DEFAULT '10.10.10.0/24',
-			psk          TEXT NOT NULL,
+			psk          TEXT,
 			status       TEXT NOT NULL DEFAULT 'active',
 			metadata     JSONB DEFAULT '{}',
 			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -75,11 +75,26 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("create vpn_ip_pool table: %w", err)
 	}
 
+	// --- Add auth columns for EAP/L2TP multi-tenant support ---
+	slog.Info("adding auth_type, username, password columns to vpn_tunnels")
+	alterColumns := []string{
+		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS auth_type TEXT NOT NULL DEFAULT 'psk' CHECK (auth_type IN ('psk', 'eap', 'l2tp'))`,
+		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS username TEXT`,
+		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS password_hash TEXT`,
+		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS password_plain TEXT`,
+	}
+	for _, col := range alterColumns {
+		if _, err = tx.Exec(ctx, col); err != nil {
+			return fmt.Errorf("alter vpn_tunnels add column: %w", err)
+		}
+	}
+
 	// --- Indexes ---
 	slog.Info("creating indexes")
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_vpn_tunnels_status ON vpn_tunnels(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_vpn_tunnels_tunnel_id ON vpn_tunnels(tunnel_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_vpn_tunnels_username ON vpn_tunnels(username) WHERE username IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_vpn_ip_pool_allocated ON vpn_ip_pool(is_allocated)`,
 	}
 	for _, idx := range indexes {

@@ -17,6 +17,8 @@ type Config struct {
 	VPNConfigDir string
 	// VPNSecretFile is the path to the strongSwan secrets file (default "/etc/swanctl/secret").
 	VPNSecretFile string
+	// VPNL2TPSecretFile is the path to the pppd chap-secrets file (default "/etc/ppp/chap-secrets").
+	VPNL2TPSecretFile string
 	// API_KEY is the shared secret for authenticating API requests (required).
 	APIKey string
 }
@@ -39,8 +41,9 @@ func Load() (*Config, error) {
 		Listen:       envOr("LISTEN", ":8080"),
 		VPNContainer: envOr("VPN_CONTAINER", "vpn"),
 		VPNConfigDir: envOr("VPN_CONFIG_DIR", "/etc/swanctl/conf.d"),
-		VPNSecretFile: envOr("VPN_SECRET_FILE", "/etc/swanctl/secret"),
-		APIKey:       apiKey,
+		VPNSecretFile:     envOr("VPN_SECRET_FILE", "/etc/swanctl/secret"),
+		VPNL2TPSecretFile: envOr("VPN_L2TP_SECRET_FILE", "/etc/ppp/chap-secrets"),
+		APIKey:            apiKey,
 	}
 
 	return cfg, nil

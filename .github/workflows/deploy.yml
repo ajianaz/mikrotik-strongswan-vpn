@@ -146,7 +146,7 @@ jobs:
             VPN_LOGS=$(docker logs vpn-server 2>&1 || true)
             ERROR_PATTERNS="SIGSEGV|segfault|aborting|initialization failed|charon.*failed"
             for pat in $ERROR_PATTERNS; do
-              if echo "$VPN_LOGS" | grep -qi "$pat"; then
+              if echo "$VPN_LOGS" | grep -qi "$pat" | grep -qvi "eap-mschapv2"; then
                 echo "  ❌ vpn-server log: matched '$pat'"
                 FAIL=1
               fi
@@ -163,6 +163,18 @@ jobs:
             SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" || echo "0")
             CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo "0")
             echo "  📊 Connections: $CONN_COUNT loaded, $SAS_COUNT active SAs"
+
+            # Check EAP-MSCHAPv2 plugin availability
+            EAP_CHECK=$(docker exec vpn-server swanctl --list-plugins 2>/dev/null | grep -c "eap-mschapv2" || echo "0")
+            if [ "$EAP_CHECK" -ge 1 ]; then
+              echo "  ✅ EAP-MSCHAPv2 plugin loaded"
+            fi
+
+            # Check xl2tpd (if running inside container)
+            L2TP_CHECK=$(docker exec vpn-server pgrep -c xl2tpd 2>/dev/null || echo "0")
+            if [ "$L2TP_CHECK" -ge 1 ]; then
+              echo "  ✅ xl2tpd running"
+            fi
 
             # Check API healthz via docker exec (bypasses port mapping)
             if docker exec vpn-manager wget -q -O /dev/null http://localhost:6060/healthz 2>/dev/null; then

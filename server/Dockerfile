@@ -26,6 +26,8 @@ RUN apt-get update \
         strongswan-libcharon \
         strongswan-swanctl \
         strongswan-pki \
+        xl2tpd \
+        ppp \
         iproute2 \
         iptables \
         procps \
@@ -46,12 +48,16 @@ RUN rm -rf /etc/strongswan.d/
 #
 # Fix: remove ALL plugins, keep ONLY what's needed for IKEv2 PSK + swanctl.
 #
-# Keep (17): aes sha1 sha2 sha384 sha512 md5 mgf1 random nonce hmac
+# Keep (26): aes sha1 sha2 sha384 sha512 md5 mgf1 random nonce hmac
 #            gmp fips-prf rc2 pubkey pkcs1 x509 kernel-netlink
 #            socket-default vici updown swanctl
+#            eap eap-identity eap-mschapv2 attr resolve
+#            ──────────────────────────────────────────
+#            Last 5 added for EAP-MSCHAPv2 auth (IKEv2 EAP).
+#            Safe on ARM: crash was from loading 50+ plugins, not from these.
 RUN cd /usr/lib/ipsec/plugins \
     && ls *.so | grep -v -E \
-        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl)\.so$' \
+        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|attr|resolve)\.so$' \
     | xargs rm -f \
     && echo "Remaining plugins:" && ls *.so | sort
 
@@ -87,13 +93,18 @@ RUN chmod +x /entrypoint.sh
 # Copy charon daemon config (read-only)
 COPY strongswan.conf /etc/strongswan.conf
 
+# Copy xl2tpd + pppd config (read-only)
+COPY xl2tpd.conf /etc/xl2tpd/xl2tpd.conf
+COPY options.xl2tpd /etc/ppp/options.xl2tpd
+
 # Expose IKEv2 ports (documented — actual binding via network_mode: host)
 # UDP 500  = IKE (key exchange)
 # UDP 4500 = NAT-T (ESP-in-UDP)
-EXPOSE 500/udp 4500/udp
+# UDP 1701 = L2TP
+EXPOSE 500/udp 4500/udp 1701/udp
 
 # Healthcheck: check if charon process is alive
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
-    CMD pgrep -x charon >/dev/null
+    CMD pgrep -x charon >/dev/null && pgrep -x xl2tpd >/dev/null
 
 ENTRYPOINT ["/entrypoint.sh"]

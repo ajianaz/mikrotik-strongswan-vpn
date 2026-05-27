@@ -6,15 +6,19 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ajianaz/vpn-manager/internal/strongswan"
 	"github.com/ajianaz/vpn-manager/internal/template"
@@ -40,22 +44,27 @@ func (e *NotFoundError) Error() string {
 
 // Tunnel represents a single VPN tunnel stored in the vpn_tunnels table.
 type Tunnel struct {
-	ID          string          `json:"id"`
-	TunnelID    string          `json:"tunnel_id"`
-	Name        string          `json:"name"`
-	PeerIP      string          `json:"peer_ip"`
-	LocalSubnet string          `json:"local_subnet"`
-	PSK         string          `json:"psk"`
-	Status      string          `json:"status"`
-	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID           string          `json:"id"`
+	TunnelID     string          `json:"tunnel_id"`
+	Name         string          `json:"name"`
+	PeerIP       string          `json:"peer_ip"`
+	LocalSubnet  string          `json:"local_subnet"`
+	AuthType     string          `json:"auth_type"`
+	PSK          string          `json:"psk,omitempty"`
+	Username     string          `json:"username,omitempty"`
+	PasswordHash string          `json:"-"`
+	PasswordPlain string         `json:"-"` // never exposed in JSON responses
+	Status       string          `json:"status"`
+	Metadata     json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
 // CreateTunnelInput is the user-supplied data for creating a new tunnel.
 type CreateTunnelInput struct {
 	Name        string          `json:"name"`
 	LocalSubnet string          `json:"local_subnet,omitempty"` // default "10.10.10.0/24"
+	AuthType    string          `json:"auth_type,omitempty"`    // "eap" (default), "l2tp", or "psk"
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 }
 
@@ -74,7 +83,7 @@ func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config) *Service {
 }
 
 // CreateTunnel creates a new VPN tunnel: allocates an IP, persists the tunnel,
-// writes strongSwan config + PSK, and reloads swanctl.
+// writes strongSwan config + credentials, and reloads swanctl.
 func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*Tunnel, error) {
 	// 1. Generate tunnel_id.
 	tunnelID, err := generateTunnelID()
@@ -82,19 +91,47 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		return nil, fmt.Errorf("generate tunnel id: %w", err)
 	}
 
-	// 2. Generate PSK.
-	psk, err := generatePSK()
-	if err != nil {
-		return nil, fmt.Errorf("generate psk: %w", err)
+	// 2. Determine auth type (default "eap").
+	authType := strings.ToLower(strings.TrimSpace(input.AuthType))
+	if authType == "" {
+		authType = "eap"
 	}
 
-	// 3. Default local subnet.
+	// 3. Generate credentials based on auth type.
+	var (
+		psk          string
+		username     string
+		password     string
+		passwordHash string
+	)
+
+	switch authType {
+	case "eap", "l2tp":
+		username = generateUsername(input.Name)
+		password, err = generatePassword()
+		if err != nil {
+			return nil, fmt.Errorf("generate password: %w", err)
+		}
+		passwordHash, err = hashPassword(password)
+		if err != nil {
+			return nil, fmt.Errorf("hash password: %w", err)
+		}
+	case "psk":
+		psk, err = generatePSK()
+		if err != nil {
+			return nil, fmt.Errorf("generate psk: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("invalid auth_type %q: must be \"eap\", \"l2tp\", or \"psk\"", authType)
+	}
+
+	// 4. Default local subnet.
 	localSubnet := input.LocalSubnet
 	if localSubnet == "" {
 		localSubnet = "10.10.10.0/24"
 	}
 
-	// 4. Allocate IP from pool.
+	// 5. Allocate IP from pool.
 	var peerIP string
 	err = s.pool.QueryRow(ctx,
 		`UPDATE vpn_ip_pool SET is_allocated=true, allocated_to=$1, updated_at=NOW()
@@ -108,14 +145,14 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		return nil, fmt.Errorf("%w: %v", ErrNoAvailableIP, err)
 	}
 
-	// 5. Insert tunnel record.
+	// 6. Insert tunnel record.
 	var t Tunnel
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, psk, status, metadata)
-		 VALUES ($1, $2, $3, $4, $5, 'active', $6)
-		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, psk, status, metadata, created_at, updated_at`,
-		tunnelID, input.Name, peerIP, localSubnet, psk, input.Metadata,
-	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.PSK, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
+		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)
+		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at`,
+		tunnelID, input.Name, peerIP, localSubnet, authType, psk, username, passwordHash, password, input.Metadata,
+	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordPlain, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		// Release allocated IP on insert failure.
 		s.releaseIP(ctx, tunnelID)
@@ -130,26 +167,47 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		LocalSubnet: t.LocalSubnet,
 		PSK:         t.PSK,
 	}
-	if err := strongswan.WriteTunnelConfig(s.swanCfg, data); err != nil {
-		// Cleanup: remove DB entry and release IP.
-		s.deleteTunnelDB(ctx, t.TunnelID)
-		s.releaseIP(ctx, t.TunnelID)
-		return nil, fmt.Errorf("write tunnel config: %w", err)
+	// Only PSK tunnels need per-tunnel connection config
+	if authType == "psk" || authType == "" {
+		if err := strongswan.WriteTunnelConfig(s.swanCfg, data); err != nil {
+			// Cleanup: remove DB entry and release IP.
+			s.deleteTunnelDB(ctx, t.TunnelID)
+			s.releaseIP(ctx, t.TunnelID)
+			return nil, fmt.Errorf("write tunnel config: %w", err)
+		}
 	}
 
-	// 7. Write PSK.
-	if err := strongswan.WritePSK(s.swanCfg, data); err != nil {
-		// Cleanup: remove DB entry, release IP, remove config file.
-		strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
-		s.deleteTunnelDB(ctx, t.TunnelID)
-		s.releaseIP(ctx, t.TunnelID)
-		return nil, fmt.Errorf("write psk: %w", err)
+	// 7. Write secrets based on auth type.
+	switch authType {
+	case "eap":
+		if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, t.PasswordPlain); err != nil {
+			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+			s.deleteTunnelDB(ctx, t.TunnelID)
+			s.releaseIP(ctx, t.TunnelID)
+			return nil, fmt.Errorf("write eap secret: %w", err)
+		}
+	case "l2tp":
+		if err := strongswan.WriteL2TPSecret(s.swanCfg, t.Username, t.PasswordPlain); err != nil {
+			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+			s.deleteTunnelDB(ctx, t.TunnelID)
+			s.releaseIP(ctx, t.TunnelID)
+			return nil, fmt.Errorf("write l2tp secret: %w", err)
+		}
+	case "psk":
+		if err := strongswan.WritePSK(s.swanCfg, data); err != nil {
+			// Cleanup: remove DB entry, release IP, remove config file.
+			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+			s.deleteTunnelDB(ctx, t.TunnelID)
+			s.releaseIP(ctx, t.TunnelID)
+			return nil, fmt.Errorf("write psk: %w", err)
+		}
 	}
 
 	// 8. Reload swanctl.
 	if err := strongswan.ReloadSwanctl(s.swanCfg); err != nil {
-		// Cleanup: remove DB entry, release IP, remove config + PSK.
+		// Cleanup: remove DB entry, release IP, remove config + secrets.
 		strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+		s.removeSecretByAuthType(ctx, t)
 		s.deleteTunnelDB(ctx, t.TunnelID)
 		s.releaseIP(ctx, t.TunnelID)
 		return nil, fmt.Errorf("reload swanctl: %w", err)
@@ -162,10 +220,10 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, error) {
 	var t Tunnel
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tunnel_id, name, peer_ip, local_subnet, psk, status, metadata, created_at, updated_at
+		`SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at
 		 FROM vpn_tunnels WHERE tunnel_id=$1`,
 		tunnelID,
-	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.PSK, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordPlain, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &NotFoundError{TunnelID: tunnelID}
@@ -175,11 +233,18 @@ func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, erro
 	return &t, nil
 }
 
-// ListTunnels returns all tunnels ordered by creation time (newest first).
-func (s *Service) ListTunnels(ctx context.Context) ([]Tunnel, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT id, tunnel_id, name, peer_ip, local_subnet, psk, status, metadata, created_at, updated_at
-		 FROM vpn_tunnels ORDER BY created_at DESC`)
+// ListTunnels returns tunnels ordered by creation time (newest first).
+// If username is non-empty, filters by that username (used by updown.sh routing).
+func (s *Service) ListTunnels(ctx context.Context, username string) ([]Tunnel, error) {
+	query := `SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at
+		 FROM vpn_tunnels`
+	var args []interface{}
+	if username != "" {
+		query += ` WHERE username = $1`
+		args = append(args, username)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tunnels: %w", err)
 	}
@@ -188,7 +253,7 @@ func (s *Service) ListTunnels(ctx context.Context) ([]Tunnel, error) {
 	var tunnels []Tunnel
 	for rows.Next() {
 		var t Tunnel
-		if err := rows.Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.PSK, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordPlain, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan tunnel row: %w", err)
 		}
 		tunnels = append(tunnels, t)
@@ -201,26 +266,56 @@ func (s *Service) ListTunnels(ctx context.Context) ([]Tunnel, error) {
 
 // DeleteTunnel removes a tunnel: its strongSwan config, IP allocation, and DB record.
 func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
-	// 1. Verify tunnel exists.
-	if _, err := s.GetTunnel(ctx, tunnelID); err != nil {
-		return err
+	// 1. Verify tunnel exists and get auth info.
+	var authType, username string
+	err := s.pool.QueryRow(ctx,
+		`SELECT auth_type, COALESCE(username, '') FROM vpn_tunnels WHERE tunnel_id=$1`,
+		tunnelID,
+	).Scan(&authType, &username)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &NotFoundError{TunnelID: tunnelID}
+		}
+		return fmt.Errorf("get tunnel %s: %w", tunnelID, err)
 	}
 
-	// 2. Remove strongSwan config (best-effort).
-	if err := strongswan.RemoveTunnelConfig(s.swanCfg, tunnelID); err != nil {
-		slog.Error("failed to remove tunnel config, continuing cleanup",
-			"tunnel_id", tunnelID, "error", err)
+	// 2. Remove strongSwan config (best-effort, PSK only).
+	if authType == "psk" {
+		if err := strongswan.RemoveTunnelConfig(s.swanCfg, tunnelID); err != nil {
+			slog.Error("failed to remove tunnel config, continuing cleanup",
+				"tunnel_id", tunnelID, "error", err)
+		}
 	}
 
-	// 3. Release IP allocation (best-effort).
+	// 3. Remove secrets based on auth type (best-effort).
+	switch authType {
+	case "eap":
+		if username != "" {
+			if err := strongswan.RemoveEAPSecret(s.swanCfg, username); err != nil {
+				slog.Error("failed to remove eap secret", "tunnel_id", tunnelID, "error", err)
+			}
+		}
+	case "l2tp":
+		if username != "" {
+			if err := strongswan.RemoveL2TPSecret(s.swanCfg, username); err != nil {
+				slog.Error("failed to remove l2tp secret", "tunnel_id", tunnelID, "error", err)
+			}
+		}
+	case "psk":
+		if err := strongswan.RemovePSK(s.swanCfg, tunnelID); err != nil {
+			slog.Error("failed to remove psk", "tunnel_id", tunnelID, "error", err)
+		}
+	}
+
+	// 4. Release IP allocation (best-effort).
 	s.releaseIP(ctx, tunnelID)
 
-	// 4. Delete DB record.
+	// 5. Delete DB record.
 	if err := s.deleteTunnelDB(ctx, tunnelID); err != nil {
 		return fmt.Errorf("delete tunnel %s: %w", tunnelID, err)
 	}
 
-	// 5. Reload swanctl (best-effort).
+	// 6. Reload swanctl (best-effort).
 	if err := strongswan.ReloadSwanctl(s.swanCfg); err != nil {
 		slog.Error("failed to reload swanctl after delete",
 			"tunnel_id", tunnelID, "error", err)
@@ -242,9 +337,22 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 		LocalIP:     LOCAL_IP,
 		LocalSubnet: t.LocalSubnet,
 		PSK:         t.PSK,
+		AuthType:    t.AuthType,
+		Username:    t.Username,
+		Password:    t.PasswordPlain,
 	}
 
-	rendered, err := template.RenderMikroTikRSC(data)
+	var rendered string
+	switch strings.ToLower(t.AuthType) {
+	case "eap":
+		rendered, err = template.RenderMikroTikEAPRSC(data)
+	case "l2tp":
+		rendered, err = template.RenderMikroTikL2TPRSC(data)
+	case "psk":
+		rendered, err = template.RenderMikroTikRSC(data)
+	default:
+		rendered, err = template.RenderMikroTikRSC(data)
+	}
 	if err != nil {
 		return "", fmt.Errorf("render mikrotik rsc for %s: %w", tunnelID, err)
 	}
@@ -301,4 +409,74 @@ func (s *Service) deleteTunnelDB(ctx context.Context, tunnelID string) error {
 		return &NotFoundError{TunnelID: tunnelID}
 	}
 	return nil
+}
+
+// CreateTunnelResponse wraps a Tunnel with the plaintext password (only
+// returned on create for EAP/L2TP auth types).
+type CreateTunnelResponse struct {
+	Tunnel
+	Password string `json:"password,omitempty"` // only shown on create for EAP/L2TP
+}
+
+// removeSecretByAuthType removes the appropriate secret file entry during
+// rollback based on the tunnel's auth_type.
+func (s *Service) removeSecretByAuthType(_ context.Context, t Tunnel) {
+	switch t.AuthType {
+	case "eap":
+		if t.Username != "" {
+			if err := strongswan.RemoveEAPSecret(s.swanCfg, t.Username); err != nil {
+				slog.Error("failed to remove eap secret during rollback",
+					"tunnel_id", t.TunnelID, "error", err)
+			}
+		}
+	case "l2tp":
+		if t.Username != "" {
+			if err := strongswan.RemoveL2TPSecret(s.swanCfg, t.Username); err != nil {
+				slog.Error("failed to remove l2tp secret during rollback",
+					"tunnel_id", t.TunnelID, "error", err)
+			}
+		}
+	case "psk":
+		if err := strongswan.RemovePSK(s.swanCfg, t.TunnelID); err != nil {
+			slog.Error("failed to remove psk during rollback",
+				"tunnel_id", t.TunnelID, "error", err)
+		}
+	}
+}
+
+var nonAlnumRe = regexp.MustCompile(`[^a-z0-9]+`)
+
+// generateUsername creates a deterministic-ish username from the tunnel name:
+// lowercase, replace non-alnum with hyphens, trim to 28 chars, append 4-byte hex suffix.
+func generateUsername(name string) string {
+	lower := strings.ToLower(name)
+	clean := nonAlnumRe.ReplaceAllString(lower, "-")
+	clean = strings.Trim(clean, "-")
+	if len(clean) > 28 {
+		clean = clean[:28]
+	}
+
+	suffix := make([]byte, 4)
+	if _, err := rand.Read(suffix); err != nil {
+		suffix = []byte{0, 0, 0, 0}
+	}
+	return clean + "-" + hex.EncodeToString(suffix)
+}
+
+// generatePassword creates a random password: 24 random bytes, base64-encoded.
+func generatePassword() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+// hashPassword returns a bcrypt hash of the given password.
+func hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
 }
