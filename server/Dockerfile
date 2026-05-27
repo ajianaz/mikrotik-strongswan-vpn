@@ -73,7 +73,7 @@ COPY strongswan.conf /etc/strongswan.conf
 EXPOSE 500/udp 4500/udp
 
 # Healthcheck: check if charon process is alive
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start_period=5s \
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=5s \
     CMD pgrep -x charon >/dev/null
 
 ENTRYPOINT ["/entrypoint.sh"]
