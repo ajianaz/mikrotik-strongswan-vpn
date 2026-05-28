@@ -18,10 +18,7 @@
 #   • UDP 500   — IKE (key exchange)
 #   • UDP 4500  — NAT-T (ESP-in-UDP for NAT traversal)
 #   • Protocol 50 — ESP (native encrypted data channel)
-#
 # =============================================================================
-
-version: "3.8"
 
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────
@@ -105,7 +102,7 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${LISTEN_PORT:-8080}/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:${LISTEN_PORT:-6060}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

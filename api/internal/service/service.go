@@ -131,7 +131,19 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		localSubnet = "10.10.10.0/24"
 	}
 
-	// 5. Allocate IP from pool (CTE subquery for PG12+ compatibility;
+	// 5. Insert tunnel record first (without peer_ip — FK requires tunnel to exist before IP allocation).
+	var t Tunnel
+	err = s.pool.QueryRow(ctx,
+		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata)
+		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, $8, 'active', $9)
+		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at`,
+		tunnelID, input.Name, localSubnet, authType, psk, username, passwordHash, password, input.Metadata,
+	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordPlain, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert tunnel: %w", err)
+	}
+
+	// 6. Allocate IP from pool (CTE subquery for PG12+ compatibility;
 	// PostgreSQL <17 does not support UPDATE ... ORDER BY ... LIMIT).
 	var peerIP string
 	err = s.pool.QueryRow(ctx,
@@ -146,22 +158,22 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		tunnelID,
 	).Scan(&peerIP)
 	if err != nil {
+		// Remove tunnel record on allocation failure.
+		s.deleteTunnelDB(ctx, t.TunnelID)
 		return nil, fmt.Errorf("%w: %v", ErrNoAvailableIP, err)
 	}
 
-	// 6. Insert tunnel record.
-	var t Tunnel
-	err = s.pool.QueryRow(ctx,
-		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)
-		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_plain, status, metadata, created_at, updated_at`,
-		tunnelID, input.Name, peerIP, localSubnet, authType, psk, username, passwordHash, password, input.Metadata,
-	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordPlain, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
+	// 7. Update tunnel with allocated peer_ip.
+	_, err = s.pool.Exec(ctx,
+		`UPDATE vpn_tunnels SET peer_ip=$1 WHERE tunnel_id=$2`,
+		peerIP, tunnelID,
+	)
 	if err != nil {
-		// Release allocated IP on insert failure.
 		s.releaseIP(ctx, tunnelID)
-		return nil, fmt.Errorf("insert tunnel: %w", err)
+		s.deleteTunnelDB(ctx, t.TunnelID)
+		return nil, fmt.Errorf("update tunnel peer_ip: %w", err)
 	}
+	t.PeerIP = peerIP
 
 	// Build TunnelData for strongSwan operations.
 	data := strongswan.TunnelData{

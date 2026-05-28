@@ -18,6 +18,8 @@ jobs:
   deploy:
     name: Deploy (${{ github.event.workflow_run.head_branch || 'manual' }})
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success')
@@ -170,9 +172,11 @@ jobs:
             fi
 
             # Check strongSwan loaded connections (informational — 0 is OK if no config yet)
-            SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" || echo "0")
-            CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo "0")
-            echo "  📊 Connections: $CONN_COUNT loaded, $SAS_COUNT active SAs"
+            SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" || true)
+            CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || true)
+            SAS_COUNT=${SAS_COUNT:-0}
+            CONN_COUNT=${CONN_COUNT:-0}
+            echo "  📊 Connections: ${CONN_COUNT##*$'\n'} loaded, ${SAS_COUNT##*$'\n'} active SAs"
 
             # Check EAP-MSCHAPv2 plugin availability
             EAP_CHECK=$(docker exec vpn-server swanctl --list-plugins 2>/dev/null | grep -c "eap-mschapv2" || echo "0")
