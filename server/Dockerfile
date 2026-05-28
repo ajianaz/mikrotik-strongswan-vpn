@@ -14,16 +14,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 # causing: "unmet dependency: HASH_SHA1" → "initialization failed".
 ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 
-# Install strongSwan — core packages only (no extra plugins).
-# libcharon-extra-plugins provides EAP, RADIUS, TNC etc. which cause segfault.
-# Core packages (libstrongswan + strongswan-charon + strongswan-libcharon)
-# provide all plugins needed for IKEv2 PSK: aes, sha1, sha2, nonce,
-# random, hmac, pubkey, x509, kernel-netlink, socket-default, vici.
+# Install strongSwan — core + extra plugins (EAP-MSCHAPv2).
+# libcharon-extra-plugins provides eap.so and eap-mschapv2.so needed for
+# IKEv2 EAP auth. ARM segfault was caused by loading ALL 50+ plugins;
+# the whitelist below (line 59) keeps only the safe subset.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libstrongswan \
         strongswan-charon \
         strongswan-libcharon \
+        libcharon-extra-plugins \
         strongswan-swanctl \
         strongswan-pki \
         xl2tpd \

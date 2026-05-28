@@ -131,14 +131,18 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*T
 		localSubnet = "10.10.10.0/24"
 	}
 
-	// 5. Allocate IP from pool.
+	// 5. Allocate IP from pool (CTE subquery for PG12+ compatibility;
+	// PostgreSQL <17 does not support UPDATE ... ORDER BY ... LIMIT).
 	var peerIP string
 	err = s.pool.QueryRow(ctx,
-		`UPDATE vpn_ip_pool SET is_allocated=true, allocated_to=$1, updated_at=NOW()
-		 WHERE is_allocated=false
-		 ORDER BY ip_address
-		 LIMIT 1
-		 RETURNING ip_address`,
+		`WITH next_ip AS (
+			SELECT ip_address FROM vpn_ip_pool
+			WHERE is_allocated=false ORDER BY ip_address LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE vpn_ip_pool SET is_allocated=true, allocated_to=$1, updated_at=NOW()
+		FROM next_ip WHERE vpn_ip_pool.ip_address = next_ip.ip_address
+		RETURNING vpn_ip_pool.ip_address`,
 		tunnelID,
 	).Scan(&peerIP)
 	if err != nil {
