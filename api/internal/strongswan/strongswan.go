@@ -1,5 +1,12 @@
 // Package strongswan provides integration with strongSwan IPsec VPN
 // via Docker exec for swanctl configuration management.
+//
+// TEMPLATE SAFETY (#55): All configuration rendering uses Go's standard
+// text/template package (see internal/template/). Go templates do NOT execute
+// shell commands or evaluate arbitrary code — they only perform text
+// substitution. This eliminates envsubst-style injection risks where
+// environment variable values could influence shell expansion.
+// No envsubst is used anywhere in this codebase.
 package strongswan
 
 import (
@@ -17,6 +24,7 @@ type Config struct {
 	ConfigDir     string // Path to swanctl conf.d directory (default: "/etc/swanctl/conf.d")
 	SecretFile    string // Path to swanctl secret file (default: "/etc/swanctl/secret")
 	L2TPSecretFile string // Path to PPP chap-secrets file (default: "/etc/ppp/chap-secrets")
+	LocalIP       string // VPN server gateway address (default: "10.10.10.1") (#57)
 }
 
 // DefaultL2TPSecretFile is the default path for the L2TP chap-secrets file.

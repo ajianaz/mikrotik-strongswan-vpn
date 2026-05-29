@@ -44,6 +44,11 @@ func writeError(w http.ResponseWriter, err error) {
 		return
 	}
 
+	if errors.Is(err, service.ErrInvalidName) {
+		writeErrorJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	slog.Error("internal error", "error", err)
 	writeErrorJSON(w, http.StatusInternalServerError, "internal server error")
 }
@@ -73,7 +78,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/{tunnelID}", h.GetTunnel)
 	r.Delete("/{tunnelID}", h.DeleteTunnel)
 	r.Get("/{tunnelID}/rsc", h.GetMikroTikRSC)
-	r.Post("/reload", h.ReloadAll)
+	// NOTE: POST /reload is registered at /api/v1/reload in main.go, not here (#56)
 	return r
 }
 
