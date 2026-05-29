@@ -1,5 +1,12 @@
 // Package strongswan provides integration with strongSwan IPsec VPN
 // via Docker exec for swanctl configuration management.
+//
+// TEMPLATE SAFETY (#55): All configuration rendering uses Go's standard
+// text/template package (see internal/template/). Go templates do NOT execute
+// shell commands or evaluate arbitrary code — they only perform text
+// substitution. This eliminates envsubst-style injection risks where
+// environment variable values could influence shell expansion.
+// No envsubst is used anywhere in this codebase.
 package strongswan
 
 import (
