@@ -55,6 +55,7 @@ services:
 
     environment:
       - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
+      - API_KEY=${API_KEY}
 
     volumes:
       # Shared swanctl config — vpn-manager writes here, vpn-server reads here
