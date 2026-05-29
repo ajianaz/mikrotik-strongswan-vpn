@@ -46,7 +46,10 @@ func Load() (*Config, error) {
 	}
 
 	cryptoKeyStr := os.Getenv("ENCRYPTION_KEY")
-	var cryptoKey []byte
+	var (
+		cryptoKey []byte
+		err       error
+	)
 	if cryptoKeyStr != "" {
 		cryptoKey, err = crypto.DecodeKey(cryptoKeyStr)
 		if err != nil {
