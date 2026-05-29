@@ -35,8 +35,8 @@ func TestRenderMikroTikRSC(t *testing.T) {
 	if !strings.Contains(out, data.PeerIP) {
 		t.Errorf("output missing peer_ip %q", data.PeerIP)
 	}
-	if !strings.Contains(out, data.LocalIP) {
-		t.Errorf("output missing local_ip %q", data.LocalIP)
+	if !strings.Contains(out, data.LocalSubnet) {
+		t.Errorf("output missing local_subnet %q", data.LocalSubnet)
 	}
 	if !strings.Contains(out, data.PSK) {
 		t.Errorf("output missing psk %q", data.PSK)
