@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 )
@@ -27,7 +28,7 @@ func APIKeyAuth(apiKey string) func(http.Handler) http.Handler {
 
 			// Expected format: "Bearer <api_key>"
 			parts := strings.SplitN(header, " ", 2)
-			if len(parts) != 2 || parts[0] != "Bearer" || parts[1] != apiKey {
+			if len(parts) != 2 || parts[0] != "Bearer" || subtle.ConstantTimeCompare([]byte(parts[1]), []byte(apiKey)) != 1 {
 				w.Header().Set("Content-Type", "application/json")
 				http.Error(w, `{"error":"invalid api key"}`, http.StatusUnauthorized)
 				return
