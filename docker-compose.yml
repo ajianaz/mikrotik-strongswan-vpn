@@ -79,6 +79,11 @@ services:
     volumes:
       # Same shared volume as vpn-server — writes swanctl configs here
       - vpn-configs:/etc/swanctl
+
+      # SECURITY NOTE (#54): Mounting the Docker socket (even read-only) exposes
+      # container metadata. For multi-tenant deployments, replace this direct mount
+      # with Tecnativa/docker-socket-proxy to restrict allowed Docker API calls.
+      # Acceptable for single-tenant use (one VPN manager per host).
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
     environment:
