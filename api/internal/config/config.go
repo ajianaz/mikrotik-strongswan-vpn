@@ -22,6 +22,8 @@ type Config struct {
 	VPNSecretFile string
 	// VPNL2TPSecretFile is the path to the pppd chap-secrets file (default "/etc/ppp/chap-secrets").
 	VPNL2TPSecretFile string
+	// VPNLocalIP is the VPN server gateway address inside the tunnel subnet (default "10.10.10.1").
+	VPNLocalIP string
 	// API_KEY is the shared secret for authenticating API requests (required).
 	APIKey string
 	// EncryptionKey is the AES-256 key (base64-encoded, 32 bytes) for
@@ -69,6 +71,7 @@ func Load() (*Config, error) {
 		VPNConfigDir:     envOr("VPN_CONFIG_DIR", "/etc/swanctl/conf.d"),
 		VPNSecretFile:    envOr("VPN_SECRET_FILE", "/etc/swanctl/secret"),
 		VPNL2TPSecretFile: envOr("VPN_L2TP_SECRET_FILE", "/etc/ppp/chap-secrets"),
+		VPNLocalIP:       envOr("VPN_LOCAL_IP", "10.10.10.1"),
 		APIKey:           apiKey,
 		EncryptionKey:    cryptoKey,
 	}

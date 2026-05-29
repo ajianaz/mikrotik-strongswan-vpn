@@ -24,6 +24,7 @@ type Config struct {
 	ConfigDir     string // Path to swanctl conf.d directory (default: "/etc/swanctl/conf.d")
 	SecretFile    string // Path to swanctl secret file (default: "/etc/swanctl/secret")
 	L2TPSecretFile string // Path to PPP chap-secrets file (default: "/etc/ppp/chap-secrets")
+	LocalIP       string // VPN server gateway address (default: "10.10.10.1") (#57)
 }
 
 // DefaultL2TPSecretFile is the default path for the L2TP chap-secrets file.

@@ -53,8 +53,9 @@ func main() {
 		ConfigDir:      cfg.VPNConfigDir,
 		SecretFile:     cfg.VPNSecretFile,
 		L2TPSecretFile: cfg.VPNL2TPSecretFile,
+		LocalIP:       cfg.VPNLocalIP,
 	}
-	svc := service.NewService(pool, swanCfg, cfg.EncryptionKey)
+	svc := service.NewService(pool, swanCfg, cfg.EncryptionKey, cfg.VPNLocalIP)
 	h := handler.NewHandler(svc)
 
 	// Setup router

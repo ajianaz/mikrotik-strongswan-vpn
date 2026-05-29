@@ -93,6 +93,7 @@ services:
       - VPN_CONTAINER=vpn-server
       - VPN_CONFIG_DIR=/etc/swanctl/conf.d
       - VPN_SECRET_FILE=/etc/swanctl/secret
+      - VPN_LOCAL_IP=${VPN_LOCAL_IP:-10.10.10.1}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
 
     ports:
