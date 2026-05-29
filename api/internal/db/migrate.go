@@ -78,7 +78,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	// --- Add auth columns for EAP/L2TP multi-tenant support ---
 	slog.Info("adding auth_type, username, password columns to vpn_tunnels")
 	alterColumns := []string{
-		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS auth_type TEXT NOT NULL DEFAULT 'psk' CHECK (auth_type IN ('psk', 'eap', 'l2tp'))`,
+		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS auth_type TEXT NOT NULL DEFAULT 'eap' CHECK (auth_type IN ('eap', 'l2tp'))`,
 		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS username TEXT`,
 		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS password_hash TEXT`,
 	}
