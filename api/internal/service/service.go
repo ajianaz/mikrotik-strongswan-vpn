@@ -77,7 +77,7 @@ type Service struct {
 	pool         *pgxpool.Pool
 	swanCfg      strongswan.Config
 	encryptionKey []byte
-	mu           sync.Mutex // protects strongSwan file operations (#53)
+	mu           sync.Mutex // #53 — protects strongSwan file operations against TOCTOU races
 	localIP      string     // VPN server gateway address (configurable via VPN_LOCAL_IP, #57)
 }
 
