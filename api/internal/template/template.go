@@ -40,6 +40,9 @@ func init() {
 }
 
 // RenderSwanctlConfig renders the swanctl connection config.
+// NOTE: Currently unused — strongSwan config is generated via fmt.Sprintf in
+// the strongswan package. Kept for potential future use if we migrate to templates.
+// See #58 dead code audit.
 func RenderSwanctlConfig(data TunnelData) (string, error) {
 	var buf bytes.Buffer
 	if err := swanctlTmpl.Execute(&buf, data); err != nil {
@@ -49,6 +52,9 @@ func RenderSwanctlConfig(data TunnelData) (string, error) {
 }
 
 // RenderPSK renders the PSK secret entry.
+// NOTE: Currently unused — PSK entries are generated via fmt.Sprintf in
+// the strongswan package. Kept for potential future use if we migrate to templates.
+// See #58 dead code audit.
 func RenderPSK(data TunnelData) (string, error) {
 	var buf bytes.Buffer
 	if err := pskTmpl.Execute(&buf, data); err != nil {
