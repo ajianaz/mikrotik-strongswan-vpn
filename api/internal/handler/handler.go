@@ -79,6 +79,7 @@ func (h *Handler) Routes() chi.Router {
 
 // CreateTunnel handles POST / — creates a new VPN tunnel.
 func (h *Handler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, err)
