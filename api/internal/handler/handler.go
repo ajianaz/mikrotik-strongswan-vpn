@@ -62,11 +62,11 @@ func writeErrorJSON(w http.ResponseWriter, status int, message string) {
 
 // Handler holds the service dependency for HTTP handlers.
 type Handler struct {
-	svc *service.Service
+	svc service.TunnelService
 }
 
 // NewHandler creates a new Handler with the given service.
-func NewHandler(svc *service.Service) *Handler {
+func NewHandler(svc service.TunnelService) *Handler {
 	return &Handler{svc: svc}
 }
 
