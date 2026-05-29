@@ -44,6 +44,11 @@ func writeError(w http.ResponseWriter, err error) {
 		return
 	}
 
+	if errors.Is(err, service.ErrInvalidName) {
+		writeErrorJSON(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	slog.Error("internal error", "error", err)
 	writeErrorJSON(w, http.StatusInternalServerError, "internal server error")
 }

@@ -34,6 +34,7 @@ const LOCAL_IP_DEFAULT = "10.10.10.1"
 var (
 	ErrNotFound     = errors.New("tunnel not found")
 	ErrNoAvailableIP = errors.New("no available IP addresses in pool")
+	ErrInvalidName  = errors.New("invalid tunnel name") // #52
 )
 
 // NotFoundError is returned when a specific tunnel cannot be found by tunnel_id.
@@ -95,21 +96,21 @@ func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []b
 // #52 — input sanitization
 func validateName(name string) error {
 	if len(name) == 0 || len(name) > 128 {
-		return fmt.Errorf("name must be 1-128 characters")
+		return fmt.Errorf("%w: must be 1-128 characters", ErrInvalidName)
 	}
 	if strings.ContainsAny(name, "/\\`$") {
-		return fmt.Errorf("name contains forbidden characters: / \\ ` $")
+		return fmt.Errorf("%w: contains forbidden characters (/, \\, `, $)", ErrInvalidName)
 	}
 	if strings.Contains(name, "..") {
-		return fmt.Errorf("name contains forbidden path traversal sequence \"..\"")
+		return fmt.Errorf("%w: contains forbidden path traversal sequence \"..\"", ErrInvalidName)
 	}
 	if strings.ContainsRune(name, 0) {
-		return fmt.Errorf("name contains null byte")
+		return fmt.Errorf("%w: contains null byte", ErrInvalidName)
 	}
 	for _, r := range name {
 		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') &&
 			r != ' ' && r != '-' && r != '_' {
-			return fmt.Errorf("name contains invalid character %q; only alphanumeric, spaces, hyphens, and underscores are allowed", r)
+			return fmt.Errorf("%w: contains invalid character %q; only alphanumeric, spaces, hyphens, and underscores are allowed", ErrInvalidName, r)
 		}
 	}
 	return nil
