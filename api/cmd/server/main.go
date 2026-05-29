@@ -54,7 +54,7 @@ func main() {
 		SecretFile:     cfg.VPNSecretFile,
 		L2TPSecretFile: cfg.VPNL2TPSecretFile,
 	}
-	svc := service.NewService(pool, swanCfg)
+	svc := service.NewService(pool, swanCfg, cfg.EncryptionKey)
 	h := handler.NewHandler(svc)
 
 	// Setup router

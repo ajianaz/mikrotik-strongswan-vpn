@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/ajianaz/vpn-manager/internal/crypto"
 	"github.com/ajianaz/vpn-manager/internal/strongswan"
 	"github.com/ajianaz/vpn-manager/internal/template"
 )
@@ -44,19 +45,20 @@ func (e *NotFoundError) Error() string {
 
 // Tunnel represents a single VPN tunnel stored in the vpn_tunnels table.
 type Tunnel struct {
-	ID           string          `json:"id"`
-	TunnelID     string          `json:"tunnel_id"`
-	Name         string          `json:"name"`
-	PeerIP       string          `json:"peer_ip"`
-	LocalSubnet  string          `json:"local_subnet"`
-	AuthType     string          `json:"auth_type"`
-	PSK          string          `json:"psk,omitempty"`
-	Username     string          `json:"username,omitempty"`
-	PasswordHash string          `json:"-"`
-	Status       string          `json:"status"`
-	Metadata     json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	ID              string          `json:"id"`
+	TunnelID        string          `json:"tunnel_id"`
+	Name            string          `json:"name"`
+	PeerIP          string          `json:"peer_ip"`
+	LocalSubnet     string          `json:"local_subnet"`
+	AuthType        string          `json:"auth_type"`
+	PSK             string          `json:"psk,omitempty"`
+	Username         string          `json:"username,omitempty"`
+	PasswordHash    string          `json:"-"`
+	PasswordEncrypted string         `json:"-"` // AES-256-GCM encrypted plaintext password
+	Status          string          `json:"status"`
+	Metadata        json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
 // CreateTunnelInput is the user-supplied data for creating a new tunnel.
@@ -69,15 +71,17 @@ type CreateTunnelInput struct {
 
 // Service holds dependencies for the tunnel business logic.
 type Service struct {
-	pool    *pgxpool.Pool
-	swanCfg strongswan.Config
+	pool         *pgxpool.Pool
+	swanCfg      strongswan.Config
+	encryptionKey []byte
 }
 
 // NewService creates a new Service instance.
-func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config) *Service {
+func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte) *Service {
 	return &Service{
-		pool:    pool,
-		swanCfg: swanCfg,
+		pool:         pool,
+		swanCfg:      swanCfg,
+		encryptionKey: encryptionKey,
 	}
 }
 
@@ -131,14 +135,22 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		localSubnet = "10.10.10.0/24"
 	}
 
-	// 5. Insert tunnel record first (without peer_ip — FK requires tunnel to exist before IP allocation).
+	// 5. Encrypt password and insert tunnel record.
+	var passwordEncrypted string
+	if authType == "eap" || authType == "l2tp" {
+		passwordEncrypted, err = crypto.Encrypt(s.encryptionKey, []byte(password))
+		if err != nil {
+			return nil, fmt.Errorf("encrypt password: %w", err)
+		}
+	}
+
 	var t Tunnel
 	err = s.pool.QueryRow(ctx,
-		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, status, metadata)
-		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, 'active', $8)
-		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, status, metadata, created_at, updated_at`,
-		tunnelID, input.Name, localSubnet, authType, psk, username, passwordHash, input.Metadata,
-	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
+		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata)
+		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, $8, 'active', $9)
+		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at`,
+		tunnelID, input.Name, localSubnet, authType, psk, username, passwordHash, passwordEncrypted, input.Metadata,
+	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordEncrypted, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert tunnel: %w", err)
 	}
@@ -242,10 +254,10 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, error) {
 	var t Tunnel
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, status, metadata, created_at, updated_at
+		`SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at
 		 FROM vpn_tunnels WHERE tunnel_id=$1`,
 		tunnelID,
-	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
+	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordEncrypted, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, &NotFoundError{TunnelID: tunnelID}
@@ -258,7 +270,7 @@ func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, erro
 // ListTunnels returns tunnels ordered by creation time (newest first).
 // If username is non-empty, filters by that username (used by updown.sh routing).
 func (s *Service) ListTunnels(ctx context.Context, username string) ([]Tunnel, error) {
-	query := `SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, status, metadata, created_at, updated_at
+	query := `SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at
 		 FROM vpn_tunnels`
 	var args []interface{}
 	if username != "" {
@@ -275,7 +287,7 @@ func (s *Service) ListTunnels(ctx context.Context, username string) ([]Tunnel, e
 	var tunnels []Tunnel
 	for rows.Next() {
 		var t Tunnel
-		if err := rows.Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordEncrypted, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan tunnel row: %w", err)
 		}
 		tunnels = append(tunnels, t)
@@ -347,9 +359,7 @@ func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
 }
 
 // GetMikroTikRSC returns a rendered MikroTik RouterOS import script for the tunnel.
-// For EAP/L2TP tunnels, this rotates the password: a new random password is generated,
-// the bcrypt hash is updated in the DB, the strongSwan secret is rewritten, and
-// the RSC is rendered with the new password. Each download effectively rotates credentials.
+// For EAP/L2TP tunnels, the password is decrypted from the password_encrypted column.
 func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, error) {
 	t, err := s.GetTunnel(ctx, tunnelID)
 	if err != nil {
@@ -359,39 +369,13 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 	password := ""
 	switch strings.ToLower(t.AuthType) {
 	case "eap", "l2tp":
-		// Generate a new password, update hash in DB, rewrite strongSwan secret
-		password, err = generatePassword()
+		if t.PasswordEncrypted == "" {
+			return "", fmt.Errorf("tunnel %s has no encrypted password (may need re-creation)", tunnelID)
+		}
+		password, err = crypto.Decrypt(s.encryptionKey, t.PasswordEncrypted)
 		if err != nil {
-			return "", fmt.Errorf("generate password for RSC: %w", err)
+			return "", fmt.Errorf("decrypt password for %s: %w", tunnelID, err)
 		}
-		newHash, err := hashPassword(password)
-		if err != nil {
-			return "", fmt.Errorf("hash password for RSC: %w", err)
-		}
-		if _, err := s.pool.Exec(ctx,
-			`UPDATE vpn_tunnels SET password_hash=$1 WHERE tunnel_id=$2`,
-			newHash, tunnelID,
-		); err != nil {
-			return "", fmt.Errorf("update password hash for %s: %w", tunnelID, err)
-		}
-		// Remove old secret entry before writing new one (Write*Secret is append-only)
-		switch t.AuthType {
-		case "eap":
-			if err := strongswan.RemoveEAPSecret(s.swanCfg, t.Username); err != nil {
-				slog.Warn("failed to remove old eap secret during rotation", "tunnel_id", tunnelID, "error", err)
-			}
-			if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, password); err != nil {
-				return "", fmt.Errorf("rewrite eap secret for RSC: %w", err)
-			}
-		case "l2tp":
-			if err := strongswan.RemoveL2TPSecret(s.swanCfg, t.Username); err != nil {
-				slog.Warn("failed to remove old l2tp secret during rotation", "tunnel_id", tunnelID, "error", err)
-			}
-			if err := strongswan.WriteL2TPSecret(s.swanCfg, t.Username, password); err != nil {
-				return "", fmt.Errorf("rewrite l2tp secret for RSC: %w", err)
-			}
-		}
-		_ = strongswan.ReloadSwanctl(s.swanCfg) // best-effort reload
 	}
 
 	data := template.TunnelData{
