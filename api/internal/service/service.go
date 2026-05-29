@@ -374,13 +374,19 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 		); err != nil {
 			return "", fmt.Errorf("update password hash for %s: %w", tunnelID, err)
 		}
-		// Rewrite the strongSwan secret file with the new password
+		// Remove old secret entry before writing new one (Write*Secret is append-only)
 		switch t.AuthType {
 		case "eap":
+			if err := strongswan.RemoveEAPSecret(s.swanCfg, t.Username); err != nil {
+				slog.Warn("failed to remove old eap secret during rotation", "tunnel_id", tunnelID, "error", err)
+			}
 			if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, password); err != nil {
 				return "", fmt.Errorf("rewrite eap secret for RSC: %w", err)
 			}
 		case "l2tp":
+			if err := strongswan.RemoveL2TPSecret(s.swanCfg, t.Username); err != nil {
+				slog.Warn("failed to remove old l2tp secret during rotation", "tunnel_id", tunnelID, "error", err)
+			}
 			if err := strongswan.WriteL2TPSecret(s.swanCfg, t.Username, password); err != nil {
 				return "", fmt.Errorf("rewrite l2tp secret for RSC: %w", err)
 			}
