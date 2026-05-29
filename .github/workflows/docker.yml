@@ -27,6 +27,8 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: Run unit tests
         working-directory: ./api
+        env:
+          GOTOOLCHAIN: go1.24.0
         run: go test ./... -v -count=1 -race
 
   # ── vpn-server (ARM only — target is Oracle Cloud ARM) ──────────────
