@@ -6,6 +6,7 @@
 set -euo pipefail
 
 API_URL="http://localhost:8080/api/v1"
+API_KEY="${API_KEY:-}"
 LOG_TAG="updown"
 
 # If LISTEN_PORT is set (via vpn-server env), use it
@@ -33,10 +34,16 @@ case "${PLUTO_VERB:-}" in
         fi
 
         log_msg "UP: peer=${PEER_ID} vip=${VIRTUAL_IP}"
-        
+
+        # Only query API if API_KEY is available for authentication
+        if [[ -z "$API_KEY" ]]; then
+            log_msg "UP: WARNING API_KEY not set, skipping route addition"
+            exit 0
+        fi
+
         # Query API for tunnel info (retry 3 times with 2s delay)
         for attempt in 1 2 3; do
-            TUNNEL_JSON=$(curl -sf --max-time 3 "${API_URL}/tunnels?username=${PEER_ID}" 2>/dev/null || echo "")
+            TUNNEL_JSON=$(curl -sf -H "Authorization: Bearer ${API_KEY}" --max-time 3 "${API_URL}/tunnels?username=${PEER_ID}" 2>/dev/null || echo "")
             if [[ -n "$TUNNEL_JSON" ]]; then
                 break
             fi

@@ -79,6 +79,7 @@ func (h *Handler) Routes() chi.Router {
 
 // CreateTunnel handles POST / — creates a new VPN tunnel.
 func (h *Handler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, err)
@@ -101,18 +102,10 @@ func (h *Handler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tunnel, err := h.svc.CreateTunnel(r.Context(), input)
+	resp, err := h.svc.CreateTunnel(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
 		return
-	}
-
-	// For EAP/L2TP auth types, return the plaintext password in the response
-	// so the caller can configure the peer. PasswordPlain is json:"-" on Tunnel,
-	// so we use CreateTunnelResponse to expose it once.
-	resp := service.CreateTunnelResponse{Tunnel: *tunnel}
-	if tunnel.AuthType == "eap" || tunnel.AuthType == "l2tp" {
-		resp.Password = tunnel.PasswordPlain
 	}
 
 	writeJSON(w, http.StatusCreated, resp)

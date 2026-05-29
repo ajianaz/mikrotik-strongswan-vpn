@@ -78,15 +78,22 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	// --- Add auth columns for EAP/L2TP multi-tenant support ---
 	slog.Info("adding auth_type, username, password columns to vpn_tunnels")
 	alterColumns := []string{
-		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS auth_type TEXT NOT NULL DEFAULT 'psk' CHECK (auth_type IN ('psk', 'eap', 'l2tp'))`,
+		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS auth_type TEXT NOT NULL DEFAULT 'eap' CHECK (auth_type IN ('eap', 'l2tp'))`,
 		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS username TEXT`,
 		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS password_hash TEXT`,
-		`ALTER TABLE vpn_tunnels ADD COLUMN IF NOT EXISTS password_plain TEXT`,
 	}
 	for _, col := range alterColumns {
 		if _, err = tx.Exec(ctx, col); err != nil {
 			return fmt.Errorf("alter vpn_tunnels add column: %w", err)
 		}
+	}
+
+	// --- Remove password_plain column (security fix #46) ---
+	// Plaintext passwords must not be persisted. GetMikroTikRSC now
+	// rotates the password on each download instead.
+	slog.Info("dropping password_plain column from vpn_tunnels")
+	if _, err = tx.Exec(ctx, `ALTER TABLE vpn_tunnels DROP COLUMN IF EXISTS password_plain`); err != nil {
+		return fmt.Errorf("drop password_plain column: %w", err)
 	}
 
 	// --- Indexes ---
