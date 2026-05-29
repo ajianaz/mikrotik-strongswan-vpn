@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -25,8 +26,9 @@ import (
 	"github.com/ajianaz/vpn-manager/internal/template"
 )
 
-// LOCAL_IP is the VPN server gateway address inside the tunnel subnet.
-const LOCAL_IP = "10.10.10.1"
+// LOCAL_IP_DEFAULT is the default VPN server gateway address inside the tunnel subnet.
+// Configurable at runtime via the VPN_LOCAL_IP environment variable.
+const LOCAL_IP_DEFAULT = "10.10.10.1"
 
 // Sentinel errors.
 var (
@@ -74,21 +76,54 @@ type Service struct {
 	pool         *pgxpool.Pool
 	swanCfg      strongswan.Config
 	encryptionKey []byte
+	mu           sync.Mutex // protects strongSwan file operations (#53)
+	localIP      string     // VPN server gateway address (configurable via VPN_LOCAL_IP, #57)
 }
 
 // NewService creates a new Service instance.
-func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte) *Service {
+func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte, localIP string) *Service {
 	return &Service{
 		pool:         pool,
 		swanCfg:      swanCfg,
 		encryptionKey: encryptionKey,
+		localIP:      localIP,
 	}
+}
+
+// validateName checks that the user-supplied tunnel name is safe for use in
+// database records, template rendering, and strongSwan configuration.
+// #52 — input sanitization
+func validateName(name string) error {
+	if len(name) == 0 || len(name) > 128 {
+		return fmt.Errorf("name must be 1-128 characters")
+	}
+	if strings.ContainsAny(name, "/\\`$") {
+		return fmt.Errorf("name contains forbidden characters: / \\ ` $")
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("name contains forbidden path traversal sequence \"..\"")
+	}
+	if strings.ContainsRune(name, 0) {
+		return fmt.Errorf("name contains null byte")
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z') && !(r >= 'A' && r <= 'Z') && !(r >= '0' && r <= '9') &&
+			r != ' ' && r != '-' && r != '_' {
+			return fmt.Errorf("name contains invalid character %q; only alphanumeric, spaces, hyphens, and underscores are allowed", r)
+		}
+	}
+	return nil
 }
 
 // CreateTunnel creates a new VPN tunnel: allocates an IP, persists the tunnel,
 // writes strongSwan config + credentials, and reloads swanctl.
 // Returns a CreateTunnelResponse that includes the plaintext password for EAP/L2TP.
 func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*CreateTunnelResponse, error) {
+	// 0. Validate name (#52)
+	if err := validateName(input.Name); err != nil {
+		return nil, fmt.Errorf("invalid name: %w", err)
+	}
+
 	// 1. Generate tunnel_id.
 	tunnelID, err := generateTunnelID()
 	if err != nil {
@@ -144,8 +179,16 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		}
 	}
 
+	// 5-7. DB transaction: INSERT tunnel, allocate IP, UPDATE peer_ip (#51)
 	var t Tunnel
-	err = s.pool.QueryRow(ctx,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) // no-op after Commit; rollback on any error
+
+	// 5. INSERT tunnel record with placeholder peer_ip.
+	err = tx.QueryRow(ctx,
 		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata)
 		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, $8, 'active', $9)
 		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at`,
@@ -158,7 +201,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	// 6. Allocate IP from pool (CTE subquery for PG12+ compatibility;
 	// PostgreSQL <17 does not support UPDATE ... ORDER BY ... LIMIT).
 	var peerIP string
-	err = s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`WITH next_ip AS (
 			SELECT ip_address FROM vpn_ip_pool
 			WHERE is_allocated=false ORDER BY ip_address LIMIT 1
@@ -170,28 +213,34 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		tunnelID,
 	).Scan(&peerIP)
 	if err != nil {
-		// Remove tunnel record on allocation failure.
-		s.deleteTunnelDB(ctx, t.TunnelID)
 		return nil, fmt.Errorf("%w: %w", ErrNoAvailableIP, err)
 	}
 
 	// 7. Update tunnel with allocated peer_ip.
-	_, err = s.pool.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`UPDATE vpn_tunnels SET peer_ip=$1 WHERE tunnel_id=$2`,
 		peerIP, tunnelID,
 	)
 	if err != nil {
-		s.releaseIP(ctx, tunnelID)
-		s.deleteTunnelDB(ctx, t.TunnelID)
 		return nil, fmt.Errorf("update tunnel peer_ip: %w", err)
 	}
 	t.PeerIP = peerIP
+
+	// Commit the transaction — all three DB operations succeed or none do.
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	// --- StrongSwan file operations (outside DB transaction) ---
+	// Mutex protects against concurrent file writes (#53)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Build TunnelData for strongSwan operations.
 	data := strongswan.TunnelData{
 		TunnelID:    t.TunnelID,
 		PeerIP:      t.PeerIP,
-		LocalIP:     LOCAL_IP,
+		LocalIP:     s.localIP,
 		LocalSubnet: t.LocalSubnet,
 		PSK:         t.PSK,
 	}
@@ -205,7 +254,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		}
 	}
 
-	// 7. Write secrets based on auth type.
+	// Write secrets based on auth type.
 	switch authType {
 	case "eap":
 		if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, password); err != nil {
@@ -313,6 +362,8 @@ func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
 		return fmt.Errorf("get tunnel %s: %w", tunnelID, err)
 	}
 
+	// 2-3. Remove strongSwan config + secrets under mutex (#53).
+	s.mu.Lock()
 	// 2. Remove strongSwan config (best-effort, PSK only).
 	if authType == "psk" {
 		if err := strongswan.RemoveTunnelConfig(s.swanCfg, tunnelID); err != nil {
@@ -340,6 +391,7 @@ func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
 			slog.Error("failed to remove psk", "tunnel_id", tunnelID, "error", err)
 		}
 	}
+	s.mu.Unlock()
 
 	// 4. Release IP allocation (best-effort).
 	s.releaseIP(ctx, tunnelID)
@@ -381,7 +433,7 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 	data := template.TunnelData{
 		TunnelID:    t.TunnelID,
 		PeerIP:      t.PeerIP,
-		LocalIP:     LOCAL_IP,
+		LocalIP:     s.localIP,
 		LocalSubnet: t.LocalSubnet,
 		PSK:         t.PSK,
 		AuthType:    t.AuthType,
