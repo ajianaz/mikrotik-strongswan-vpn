@@ -81,6 +81,17 @@ type Service struct {
 	localIP      string     // VPN server gateway address (configurable via VPN_LOCAL_IP, #57)
 }
 
+// TunnelService defines the methods used by the HTTP handler.
+// This allows the handler to be tested with a mock implementation.
+type TunnelService interface {
+	CreateTunnel(ctx context.Context, input CreateTunnelInput) (*CreateTunnelResponse, error)
+	ListTunnels(ctx context.Context, username string) ([]Tunnel, error)
+	GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, error)
+	DeleteTunnel(ctx context.Context, tunnelID string) error
+	GetMikroTikRSC(ctx context.Context, tunnelID string) (string, error)
+	ReloadAll(ctx context.Context) error
+}
+
 // NewService creates a new Service instance.
 func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte, localIP string) *Service {
 	return &Service{

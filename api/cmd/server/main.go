@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-
 	"github.com/ajianaz/vpn-manager/internal/config"
 	"github.com/ajianaz/vpn-manager/internal/db"
 	"github.com/ajianaz/vpn-manager/internal/handler"
@@ -65,8 +65,16 @@ func main() {
 	r.Use(apimw.APIKeyAuth(cfg.APIKey))
 
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := pool.Ping(r.Context()); err != nil {
+			slog.Error("health check failed", "error", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
