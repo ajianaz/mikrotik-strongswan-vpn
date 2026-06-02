@@ -202,7 +202,7 @@ func TestWriteTunnelConfig(t *testing.T) {
 	}
 
 	expectedPath := filepath.Join(dir, "conf.d", "tun-testconf.conf")
-	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+	if _, statErr := os.Stat(expectedPath); os.IsNotExist(statErr) {
 		t.Errorf("config file %s should exist", expectedPath)
 	}
 
@@ -246,7 +246,7 @@ func TestRemoveTunnelConfig(t *testing.T) {
 	}
 
 	confPath := filepath.Join(dir, "conf.d", "tun-remove.conf")
-	if _, err := os.Stat(confPath); !os.IsNotExist(err) {
+	if _, statErr := os.Stat(confPath); !os.IsNotExist(statErr) {
 		t.Error("config file should be deleted")
 	}
 }

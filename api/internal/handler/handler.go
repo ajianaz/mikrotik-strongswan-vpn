@@ -60,7 +60,7 @@ func writeError(w http.ResponseWriter, err error) {
 func writeErrorJSON(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(Response{Error: message})
+	_ = json.NewEncoder(w).Encode(Response{Error: message})
 }
 
 // Handler holds the service dependency for HTTP handlers.
@@ -99,14 +99,14 @@ func (h *Handler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
 	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Error: "invalid JSON body"})
+		_ = json.NewEncoder(w).Encode(Response{Error: "invalid JSON body"})
 		return
 	}
 
 	if input.Name == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(Response{Error: "name is required"})
+		_ = json.NewEncoder(w).Encode(Response{Error: "name is required"})
 		return
 	}
 
@@ -173,7 +173,7 @@ func (h *Handler) GetMikroTikRSC(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(script))
+	_, _ = w.Write([]byte(script))
 }
 
 // ReloadAll handles POST /reload — reloads strongSwan configuration.

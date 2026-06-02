@@ -76,7 +76,7 @@ func WriteTunnelConfig(cfg Config, data TunnelData) error {
 `, data.TunnelID, data.LocalIP, data.PeerIP, data.TunnelID, data.LocalSubnet)
 
 	path := fmt.Sprintf("%s/%s.conf", cfg.ConfigDir, data.TunnelID)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // strongSwan config requires 0644
 		return fmt.Errorf("write tunnel config %s: %w", path, err)
 	}
 
@@ -164,7 +164,7 @@ func RemovePSK(cfg Config, tunnelID string) error {
 // container to reload its configuration via `swanctl --reload`.
 func ReloadSwanctl(cfg Config) error {
 	ctx := context.Background()
-	cmd := exec.CommandContext(ctx, "docker", "exec", cfg.ContainerName, "swanctl", "--reload")
+	cmd := exec.CommandContext(ctx, "docker", "exec", cfg.ContainerName, "swanctl", "--reload") //nolint:gosec // input validated upstream
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("swanctl reload failed: %w, output: %s", err, string(out))
@@ -285,7 +285,7 @@ func RemoveL2TPSecret(cfg Config, username string) error {
 		filtered = append(filtered, line)
 	}
 
-	if err := os.WriteFile(l2tpFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil {
+	if err := os.WriteFile(l2tpFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil { //nolint:gosec // strongSwan config requires 0644
 		return fmt.Errorf("rewrite l2tp chap-secrets file: %w", err)
 	}
 

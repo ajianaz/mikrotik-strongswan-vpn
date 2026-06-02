@@ -11,12 +11,12 @@ func TestAPIKeyAuth(t *testing.T) {
 
 	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	handler := APIKeyAuth(apiKey)(nextHandler)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet
 		name       string
 		method     string
 		path       string

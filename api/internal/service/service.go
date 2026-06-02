@@ -277,14 +277,14 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	switch authType {
 	case AuthTypeEAP:
 		if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, password); err != nil {
-			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+			_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write eap secret: %w", err)
 		}
 	case AuthTypeL2TP:
 		if err := strongswan.WriteL2TPSecret(s.swanCfg, t.Username, password); err != nil {
-			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+			_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write l2tp secret: %w", err)
@@ -292,7 +292,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	case AuthTypePSK:
 		if err := strongswan.WritePSK(s.swanCfg, data); err != nil {
 			// Cleanup: remove DB entry, release IP, remove config file.
-			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+			_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write psk: %w", err)
@@ -302,7 +302,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	// 8. Reload swanctl.
 	if err := strongswan.ReloadSwanctl(s.swanCfg); err != nil { //nolint:contextcheck // Docker exec wrapper cannot accept context
 		// Cleanup: remove DB entry, release IP, remove config + secrets.
-		strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
+		_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 		s.removeSecretByAuthType(ctx, t)
 		_ = s.deleteTunnelDB(ctx, t.TunnelID)
 		s.releaseIP(ctx, t.TunnelID)
