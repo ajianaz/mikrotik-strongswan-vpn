@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------------------
+# Traefik dynamic configuration for VPN Manager API
+# ---------------------------------------------------------------------------
+# Copy to your Traefik dynamic config directory or add as a provider.
+# See: https://doc.traefik.io/traefik/providers/file/
+#
+# This file configures:
+#   - Automatic HTTP→HTTPS redirect
+#   - TLS termination with Let's Encrypt (ACME) certificates
+#   - A router for the VPN Manager API on port 8080
+# ---------------------------------------------------------------------------
+
+http:
+
+  routers:
+
+    # -------------------------------------------------------------------
+    # Redirect all HTTP traffic to HTTPS
+    # -------------------------------------------------------------------
+    vpn-redirect:
+      rule: "HostRegexp(`{host:.+}`)"
+      entryPoints:
+        - web
+      middlewares:
+        - vpn-redirect-https
+      service: noop@internal
+
+    # -------------------------------------------------------------------
+    # VPN Manager API — TLS
+    # -------------------------------------------------------------------
+    vpn-api:
+      rule: "Host(`vpn.example.com`)"  # ← change to your domain
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+        options: modern
+      service: vpn-manager
+
+  middlewares:
+    vpn-redirect-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+  services:
+    vpn-manager:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"  # ← VPN Manager API listen address
+
+  # -----------------------------------------------------------------------
+  # TLS options — enforce modern cipher suites
+  # -----------------------------------------------------------------------
+  tls:
+    options:
+      modern:
+        minVersion: VersionTLS13
+        cipherSuites:
+          - TLS_AES_128_GCM_SHA256
+          - TLS_AES_256_GCM_SHA384
+          - TLS_CHACHA20_POLY1305_SHA256
