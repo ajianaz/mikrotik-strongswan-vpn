@@ -1,0 +1,36 @@
+# Build artifacts
+/bin/
+/pkg/
+/tmp/
+/out/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Docs (not needed in build context)
+*.md
+LICENSE
+Makefile
+
+# CI
+.github/
+
+# Test files
+*_test.go
+testdata/

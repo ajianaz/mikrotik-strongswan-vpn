@@ -1,0 +1,24 @@
+# Build artifacts
+*.deb
+*.log
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI
+.github/
+
+# Docs
+*.md
+LICENSE

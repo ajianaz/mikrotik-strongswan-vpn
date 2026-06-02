@@ -65,16 +65,6 @@ jobs:
             git pull
             docker compose pull
 
-            # Ensure LISTEN_PORT is in .env (extract from LISTEN if missing)
-            if ! grep -q '^LISTEN_PORT=' .env 2>/dev/null; then
-              LISTEN_VAL=$(grep '^LISTEN=' .env 2>/dev/null | head -1 | cut -d= -f2)
-              if [[ -n "$LISTEN_VAL" ]]; then
-                PORT="${LISTEN_VAL#:}"
-                echo "LISTEN_PORT=${PORT}" >> .env
-                echo "  Auto-added LISTEN_PORT=${PORT} to .env"
-              fi
-            fi
-
             # ── 2. Deploy ──────────────────────────────
             echo ""
             echo ">>> [2/5] Restarting services..."
@@ -190,12 +180,12 @@ jobs:
               echo "  ✅ xl2tpd running"
             fi
 
-            # Check API healthz via docker exec (bypasses port mapping)
-            MGR_PORT=$(docker exec vpn-manager sh -c 'echo ${LISTEN_PORT:-6060}' 2>/dev/null)
+            # Check API healthz via docker exec — derive port from LISTEN env
+            MGR_PORT=$(docker exec vpn-manager sh -c 'echo ${LISTEN:-:8080} | tr -d :' 2>/dev/null)
             if docker exec vpn-manager wget -q -O /dev/null "http://localhost:${MGR_PORT}/healthz" 2>/dev/null; then
-              echo "  ✅ API /healthz: 200 (via docker exec)"
+              echo "  ✅ API /healthz: 200 (port ${MGR_PORT}, via docker exec)"
             else
-              echo "  ❌ API /healthz: unreachable"
+              echo "  ❌ API /healthz: unreachable (port ${MGR_PORT})"
               FAIL=1
             fi
 

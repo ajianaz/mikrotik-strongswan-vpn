@@ -1,0 +1,42 @@
+# https://golangci-lint.run/usage/configuration/
+# Run: golangci-lint run ./...
+
+run:
+  modules-download-mode: readonly
+  tests: true
+
+linters:
+  enable:
+    - errcheck      # unchecked errors
+    - govet         # go vet (includes waitgroup, hostport in Go 1.25)
+    - staticcheck   # go vet on steroids
+    - gosimple      # simplify code
+    - ineffassign   # ineffectual assignments
+    - typecheck     # type checking
+    - gosec         # security vulnerabilities
+    - bodyclose     # HTTP body close check
+    - contextcheck  # context passing
+    - nilerr        # nil error check
+    - unparam       # unused function parameters
+    - unused        # unused code
+    - goconst       # repeated strings → const
+    - gocritic      # opinionated checks
+
+linters-settings:
+  govet:
+    enable-all: true
+  gosec:
+    excludes:
+      - G101       # hardcoded credentials (false positives on crypto constants)
+      - G404       # weak random (not crypto-critical in this codebase)
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+  max-issues-per-linter: 50
+  max-same-issues: 5
