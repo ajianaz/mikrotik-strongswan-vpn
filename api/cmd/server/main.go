@@ -44,7 +44,8 @@ func main() {
 	// Migrate database
 	if err := db.Migrate(ctx, pool); err != nil {
 		slog.Error("failed to run migrations", "error", err)
-		os.Exit(1)
+		db.Close(pool) //nolint:contextcheck
+		os.Exit(1) //nolint:gocritic // intentional: fatal config error, nothing to clean up yet
 	}
 
 	// Setup services
@@ -69,12 +70,12 @@ func main() {
 			slog.Error("health check failed", "error", err)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
+			_ = json.NewEncoder(w).Encode(map[string]string{"status": "unhealthy", "error": err.Error()})
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {

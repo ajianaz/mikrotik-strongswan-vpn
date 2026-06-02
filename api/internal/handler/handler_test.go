@@ -16,6 +16,9 @@ import (
 	"github.com/ajianaz/vpn-manager/internal/service"
 )
 
+// errInternalServer is the generic error message returned for unclassified errors.
+const errInternalServer = "internal server error"
+
 // ---------------------------------------------------------------------------
 // Mock service
 // ---------------------------------------------------------------------------
@@ -250,7 +253,7 @@ func TestCreateTunnel_InternalError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 	resp := decodeResponse(t, rec.Body.Bytes())
-	if resp.Error != "internal server error" {
+	if resp.Error != errInternalServer {
 		t.Fatalf("expected 'internal server error', got %q", resp.Error)
 	}
 }
@@ -348,7 +351,7 @@ func TestListTunnels_ServiceError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 	resp := decodeResponse(t, rec.Body.Bytes())
-	if resp.Error != "internal server error" {
+	if resp.Error != errInternalServer {
 		t.Fatalf("expected 'internal server error', got %q", resp.Error)
 	}
 }
@@ -442,7 +445,7 @@ func TestGetTunnel_ServiceError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 	resp := decodeResponse(t, rec.Body.Bytes())
-	if resp.Error != "internal server error" {
+	if resp.Error != errInternalServer {
 		t.Fatalf("expected 'internal server error', got %q", resp.Error)
 	}
 }
@@ -509,7 +512,7 @@ func TestDeleteTunnel_ServiceError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 	resp := decodeResponse(t, rec.Body.Bytes())
-	if resp.Error != "internal server error" {
+	if resp.Error != errInternalServer {
 		t.Fatalf("expected 'internal server error', got %q", resp.Error)
 	}
 }
@@ -576,7 +579,7 @@ func TestGetMikroTikRSC_ServiceError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 	resp := decodeResponse(t, rec.Body.Bytes())
-	if resp.Error != "internal server error" {
+	if resp.Error != errInternalServer {
 		t.Fatalf("expected 'internal server error', got %q", resp.Error)
 	}
 }
@@ -626,7 +629,7 @@ func TestReloadAll_ServiceError(t *testing.T) {
 		t.Fatalf("expected 500, got %d", rec.Code)
 	}
 	resp := decodeResponse(t, rec.Body.Bytes())
-	if resp.Error != "internal server error" {
+	if resp.Error != errInternalServer {
 		t.Fatalf("expected 'internal server error', got %q", resp.Error)
 	}
 }

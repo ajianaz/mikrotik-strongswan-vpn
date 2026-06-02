@@ -13,6 +13,9 @@ import (
 	"github.com/ajianaz/vpn-manager/internal/service"
 )
 
+// errInternalServer is the generic error message returned for unclassified errors.
+const errInternalServer = "internal server error"
+
 // Response is the JSON response envelope for all API endpoints.
 type Response struct {
 	Data  any    `json:"data,omitempty"`
@@ -50,7 +53,7 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 
 	slog.Error("internal error", "error", err)
-	writeErrorJSON(w, http.StatusInternalServerError, "internal server error")
+	writeErrorJSON(w, http.StatusInternalServerError, errInternalServer)
 }
 
 // writeErrorJSON writes a JSON error response with the given status code.
@@ -93,7 +96,7 @@ func (h *Handler) CreateTunnel(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	var input service.CreateTunnelInput
-	if err := json.Unmarshal(body, &input); err != nil {
+	if unmarshalErr := json.Unmarshal(body, &input); unmarshalErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(Response{Error: "invalid JSON body"})
