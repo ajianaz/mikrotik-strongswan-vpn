@@ -25,9 +25,12 @@ linters:
 linters-settings:
   govet:
     enable-all: true
+    disable:
+      - fieldalignment  # cosmetic — structs don't need optimal padding
   gosec:
     excludes:
       - G101       # hardcoded credentials (false positives on crypto constants)
+      - G306       # file permissions — strongSwan configs intentionally need 0640/0644
       - G404       # weak random (not crypto-critical in this codebase)
   errcheck:
     check-type-assertions: true
