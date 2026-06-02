@@ -197,7 +197,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx) // no-op after Commit; rollback on any error
+	defer func() { _ = tx.Rollback(ctx) }() // no-op after Commit; rollback on any error
 
 	// 5. INSERT tunnel record with placeholder peer_ip.
 	err = tx.QueryRow(ctx,
@@ -260,7 +260,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	if authType == "psk" {
 		if err := strongswan.WriteTunnelConfig(s.swanCfg, data); err != nil {
 			// Cleanup: remove DB entry and release IP.
-			s.deleteTunnelDB(ctx, t.TunnelID)
+			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write tunnel config: %w", err)
 		}
@@ -271,14 +271,14 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	case "eap":
 		if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, password); err != nil {
 			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
-			s.deleteTunnelDB(ctx, t.TunnelID)
+			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write eap secret: %w", err)
 		}
 	case "l2tp":
 		if err := strongswan.WriteL2TPSecret(s.swanCfg, t.Username, password); err != nil {
 			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
-			s.deleteTunnelDB(ctx, t.TunnelID)
+			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write l2tp secret: %w", err)
 		}
@@ -286,7 +286,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		if err := strongswan.WritePSK(s.swanCfg, data); err != nil {
 			// Cleanup: remove DB entry, release IP, remove config file.
 			strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
-			s.deleteTunnelDB(ctx, t.TunnelID)
+			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write psk: %w", err)
 		}
@@ -297,7 +297,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		// Cleanup: remove DB entry, release IP, remove config + secrets.
 		strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 		s.removeSecretByAuthType(ctx, t)
-		s.deleteTunnelDB(ctx, t.TunnelID)
+		_ = s.deleteTunnelDB(ctx, t.TunnelID)
 		s.releaseIP(ctx, t.TunnelID)
 		return nil, fmt.Errorf("reload swanctl: %w", err)
 	}
