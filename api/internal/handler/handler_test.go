@@ -16,9 +16,6 @@ import (
 	"github.com/ajianaz/vpn-manager/internal/service"
 )
 
-// errInternalServer is the generic error message returned for unclassified errors.
-const errInternalServer = "internal server error"
-
 // ---------------------------------------------------------------------------
 // Mock service
 // ---------------------------------------------------------------------------
