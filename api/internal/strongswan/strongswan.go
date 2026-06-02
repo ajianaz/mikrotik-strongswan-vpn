@@ -152,7 +152,7 @@ func RemovePSK(cfg Config, tunnelID string) error {
 		filtered = append(filtered, line)
 	}
 
-	if err := os.WriteFile(cfg.SecretFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil {
+	if err := os.WriteFile(cfg.SecretFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil { //nolint:gosec // strongSwan secrets need 0640
 		return fmt.Errorf("rewrite secret file: %w", err)
 	}
 
