@@ -11,13 +11,15 @@ func okHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+const testClientAddr = "1.2.3.4:1234"
+
 func TestRateLimit_AllowsUnderLimit(t *testing.T) {
 	rl := RateLimit(5, 30) // burst=5, 30/min
 	handler := rl(http.HandlerFunc(okHandler))
 
 	for i := 0; i < 5; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
-		req.RemoteAddr = "1.2.3.4:1234"
+		req.RemoteAddr = testClientAddr
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 
@@ -34,7 +36,7 @@ func TestRateLimit_BlocksOverLimit(t *testing.T) {
 	// Send burst + 2 more
 	for i := 0; i < 3; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
-		req.RemoteAddr = "1.2.3.4:1234"
+		req.RemoteAddr = testClientAddr
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -45,7 +47,7 @@ func TestRateLimit_BlocksOverLimit(t *testing.T) {
 	// These should be rate limited
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
-		req.RemoteAddr = "1.2.3.4:1234"
+		req.RemoteAddr = testClientAddr
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 
@@ -79,7 +81,7 @@ func TestRateLimit_HealthzExempt(t *testing.T) {
 	// Send many requests to /healthz — all should pass
 	for i := 0; i < 20; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-		req.RemoteAddr = "1.2.3.4:1234"
+		req.RemoteAddr = testClientAddr
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 
