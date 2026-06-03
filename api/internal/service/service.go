@@ -206,7 +206,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	err = tx.QueryRow(ctx,
 		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata)
 		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, $8, 'active', $9)
-		 RETURNING id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at`,
+		 RETURNING id, tunnel_id, name, peer_ip::TEXT, local_subnet::TEXT, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at`,
 		tunnelID, input.Name, localSubnet, authType, psk, username, passwordHash, passwordEncrypted, input.Metadata,
 	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordEncrypted, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
@@ -224,7 +224,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		)
 		UPDATE vpn_ip_pool SET is_allocated=true, allocated_to=$1, updated_at=NOW()
 		FROM next_ip WHERE vpn_ip_pool.ip_address = next_ip.ip_address
-		RETURNING vpn_ip_pool.ip_address`,
+		RETURNING vpn_ip_pool.ip_address::TEXT`,
 		tunnelID,
 	).Scan(&peerIP)
 	if err != nil {
@@ -318,7 +318,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, error) {
 	var t Tunnel
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at
+		`SELECT id, tunnel_id, name, peer_ip::TEXT, local_subnet::TEXT, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at
 		 FROM vpn_tunnels WHERE tunnel_id=$1`,
 		tunnelID,
 	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordEncrypted, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
@@ -334,7 +334,7 @@ func (s *Service) GetTunnel(ctx context.Context, tunnelID string) (*Tunnel, erro
 // ListTunnels returns tunnels ordered by creation time (newest first).
 // If username is non-empty, filters by that username (used by updown.sh routing).
 func (s *Service) ListTunnels(ctx context.Context, username string) ([]Tunnel, error) {
-	query := `SELECT id, tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at
+	query := `SELECT id, tunnel_id, name, peer_ip::TEXT, local_subnet::TEXT, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at
 		 FROM vpn_tunnels`
 	var args []interface{}
 	if username != "" {
