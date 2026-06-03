@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /vpn-manager ./cmd/server
 # Stage 2: Runtime (alpine — minimal OS for healthcheck and debugging)
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates wget
+RUN apk add --no-cache ca-certificates wget docker-cli
 
 COPY --from=builder /vpn-manager /app/vpn-manager
 

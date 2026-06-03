@@ -82,6 +82,7 @@ func decodeResponse(t *testing.T, body []byte) Response {
 
 // sampleTunnel returns a fixed Tunnel for tests.
 func sampleTunnel() service.Tunnel {
+	username := "test-tunnel-aabb1122"
 	return service.Tunnel{
 		ID:          "1",
 		TunnelID:    "tun-abc123",
@@ -89,7 +90,7 @@ func sampleTunnel() service.Tunnel {
 		PeerIP:      "10.10.10.2",
 		LocalSubnet: "10.10.10.0/24",
 		AuthType:    "eap",
-		Username:    "test-tunnel-aabb1122",
+		Username:    &username,
 		Status:      "active",
 		CreatedAt:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		UpdatedAt:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
