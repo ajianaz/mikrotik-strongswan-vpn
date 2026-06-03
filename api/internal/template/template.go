@@ -1,5 +1,5 @@
 // Package template provides template-based rendering of VPN configuration files
-// (swanctl.conf, PSK secrets, MikroTik RouterOS scripts) using embedded templates.
+// (MikroTik RouterOS scripts) using embedded templates.
 package template
 
 import (
@@ -24,43 +24,15 @@ type TunnelData struct {
 }
 
 var (
-	swanctlTmpl   *template.Template
-	pskTmpl       *template.Template
-	mikrotikTmpl  *template.Template
-	eapRscTmpl    *template.Template
-	l2tpRscTmpl   *template.Template
+	mikrotikTmpl *template.Template
+	eapRscTmpl   *template.Template
+	l2tpRscTmpl  *template.Template
 )
 
 func init() {
-	swanctlTmpl = template.Must(template.ParseFS(templatesFS, "templates/swanctl.conf.tmpl"))
-	pskTmpl = template.Must(template.ParseFS(templatesFS, "templates/psk.tmpl"))
 	mikrotikTmpl = template.Must(template.ParseFS(templatesFS, "templates/mikrotik.rsc.tmpl"))
 	eapRscTmpl = template.Must(template.ParseFS(templatesFS, "templates/mikrotik-eap.rsc.tmpl"))
 	l2tpRscTmpl = template.Must(template.ParseFS(templatesFS, "templates/mikrotik-l2tp.rsc.tmpl"))
-}
-
-// RenderSwanctlConfig renders the swanctl connection config.
-// NOTE: Currently unused — strongSwan config is generated via fmt.Sprintf in
-// the strongswan package. Kept for potential future use if we migrate to templates.
-// See #58 dead code audit.
-func RenderSwanctlConfig(data TunnelData) (string, error) {
-	var buf bytes.Buffer
-	if err := swanctlTmpl.Execute(&buf, data); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
-// RenderPSK renders the PSK secret entry.
-// NOTE: Currently unused — PSK entries are generated via fmt.Sprintf in
-// the strongswan package. Kept for potential future use if we migrate to templates.
-// See #58 dead code audit.
-func RenderPSK(data TunnelData) (string, error) {
-	var buf bytes.Buffer
-	if err := pskTmpl.Execute(&buf, data); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
 }
 
 // RenderMikroTikRSC renders the MikroTik RouterOS import script.

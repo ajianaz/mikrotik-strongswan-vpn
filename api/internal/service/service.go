@@ -26,10 +26,6 @@ import (
 	"github.com/ajianaz/vpn-manager/internal/template"
 )
 
-// LOCAL_IP_DEFAULT is the default VPN server gateway address inside the tunnel subnet.
-// Configurable at runtime via the VPN_LOCAL_IP environment variable.
-const LOCAL_IP_DEFAULT = "10.10.10.1"
-
 // Auth type constants to avoid repeated string literals (goconst).
 const (
 	AuthTypeEAP  = "eap"
