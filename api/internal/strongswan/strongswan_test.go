@@ -18,6 +18,35 @@ func testConfig(t *testing.T) (Config, string) {
 	return cfg, dir
 }
 
+// --- validateTunnelID (H4) ---
+
+func TestValidateTunnelID(t *testing.T) {
+	tests := []struct {
+		name     string
+		tunnelID string
+		wantErr  bool
+	}{
+		{"valid lowercase hex", "tun-abc12345", false},
+		{"valid all zeros", "tun-00000000", false},
+		{"valid all f", "tun-ffffffff", false},
+		{"empty", "", true},
+		{"no prefix", "abc12345", true},
+		{"uppercase", "tun-ABC12345", true},
+		{"too short", "tun-abc1234", true},
+		{"too long", "tun-abc123456", true},
+		{"path traversal", "tun-../etc/passwd", true},
+		{"spaces", "tun-abc 1234", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateTunnelID(tt.tunnelID)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateTunnelID(%q) error = %v, wantErr %v", tt.tunnelID, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // --- WriteEAPSecret / RemoveEAPSecret ---
 
 func TestWriteEAPSecret(t *testing.T) {
@@ -104,7 +133,6 @@ func TestRemoveL2TPSecret(t *testing.T) {
 	// Write two entries
 	WriteL2TPSecret(cfg, "user-a", "pass-a")
 	WriteL2TPSecret(cfg, "user-b", "pass-b")
-
 	// Remove user-a
 	err := RemoveL2TPSecret(cfg, "user-a")
 	if err != nil {
@@ -127,7 +155,7 @@ func TestRemoveL2TPSecret(t *testing.T) {
 func TestWritePSK(t *testing.T) {
 	cfg, _ := testConfig(t)
 	data := TunnelData{
-		TunnelID: "tun-abc123",
+		TunnelID: "tun-abc12345",
 		PeerIP:   "203.0.113.5",
 		PSK:      "abcdef1234567890abcdef1234567890",
 	}
@@ -143,8 +171,8 @@ func TestWritePSK(t *testing.T) {
 	}
 
 	content := string(fileData)
-	if !strings.Contains(content, "# tunnel:tun-abc123") {
-		t.Error("secret file missing PSK comment tag for tun-abc123")
+	if !strings.Contains(content, "# tunnel:tun-abc12345") {
+		t.Error("secret file missing PSK comment tag for tun-abc12345")
 	}
 	if !strings.Contains(content, "203.0.113.5 : PSK \"abcdef1234567890abcdef1234567890\"") {
 		t.Error("secret file missing PSK entry line")
@@ -155,11 +183,11 @@ func TestRemovePSK(t *testing.T) {
 	cfg, _ := testConfig(t)
 
 	// Write two PSK entries
-	WritePSK(cfg, TunnelData{TunnelID: "tun-111", PeerIP: "1.2.3.4", PSK: "psk111"})
-	WritePSK(cfg, TunnelData{TunnelID: "tun-222", PeerIP: "5.6.7.8", PSK: "psk222"})
+	WritePSK(cfg, TunnelData{TunnelID: "tun-aabbccdd", PeerIP: "1.2.3.4", PSK: "psk11111111111111111111111111111111"})
+	WritePSK(cfg, TunnelData{TunnelID: "tun-11223344", PeerIP: "5.6.7.8", PSK: "psk22222222222222222222222222222222"})
 
-	// Remove tun-111
-	err := RemovePSK(cfg, "tun-111")
+	// Remove tun-aabbccdd
+	err := RemovePSK(cfg, "tun-aabbccdd")
 	if err != nil {
 		t.Fatalf("RemovePSK() error: %v", err)
 	}
@@ -167,18 +195,18 @@ func TestRemovePSK(t *testing.T) {
 	fileData, _ := os.ReadFile(cfg.SecretFile)
 	content := string(fileData)
 
-	if strings.Contains(content, "# tunnel:tun-111") {
-		t.Error("tun-111 PSK entry should be removed")
+	if strings.Contains(content, "# tunnel:tun-aabbccdd") {
+		t.Error("tun-aabbccdd PSK entry should be removed")
 	}
-	if !strings.Contains(content, "# tunnel:tun-222") {
-		t.Error("tun-222 PSK entry should still exist")
+	if !strings.Contains(content, "# tunnel:tun-11223344") {
+		t.Error("tun-11223344 PSK entry should still exist")
 	}
 }
 
 func TestRemovePSK_NonExistentFile(t *testing.T) {
 	cfg, _ := testConfig(t)
 
-	err := RemovePSK(cfg, "tun-nonexistent")
+	err := RemovePSK(cfg, "tun-aabbccdd")
 	if err != nil {
 		t.Errorf("RemovePSK() on non-existent file should return nil, got: %v", err)
 	}
@@ -189,7 +217,7 @@ func TestRemovePSK_NonExistentFile(t *testing.T) {
 func TestWriteTunnelConfig(t *testing.T) {
 	cfg, dir := testConfig(t)
 	data := TunnelData{
-		TunnelID:    "tun-testconf",
+		TunnelID:    "tun-abcdef12",
 		PeerIP:      "203.0.113.10",
 		LocalIP:     "10.10.10.1",
 		LocalSubnet: "10.10.10.0/24",
@@ -201,7 +229,7 @@ func TestWriteTunnelConfig(t *testing.T) {
 		t.Fatalf("WriteTunnelConfig() error: %v", err)
 	}
 
-	expectedPath := filepath.Join(dir, "conf.d", "tun-testconf.conf")
+	expectedPath := filepath.Join(dir, "conf.d", "tun-abcdef12.conf")
 	if _, statErr := os.Stat(expectedPath); os.IsNotExist(statErr) {
 		t.Errorf("config file %s should exist", expectedPath)
 	}
@@ -212,7 +240,7 @@ func TestWriteTunnelConfig(t *testing.T) {
 	}
 
 	content := string(fileData)
-	if !strings.Contains(content, "tun-testconf") {
+	if !strings.Contains(content, "tun-abcdef12") {
 		t.Error("config file should contain tunnel_id")
 	}
 	if !strings.Contains(content, "203.0.113.10") {
@@ -229,23 +257,23 @@ func TestWriteTunnelConfig(t *testing.T) {
 func TestRemoveTunnelConfig(t *testing.T) {
 	cfg, dir := testConfig(t)
 	data := TunnelData{
-		TunnelID:    "tun-remove",
+		TunnelID:    "tun-11223344",
 		PeerIP:      "1.2.3.4",
 		LocalIP:     "10.10.10.1",
 		LocalSubnet: "10.10.10.0/24",
-		PSK:         "removeme",
+		PSK:         "removeme12345678901234567890",
 	}
 
 	WriteTunnelConfig(cfg, data)
 	WritePSK(cfg, data)
 
 	// RemoveTunnelConfig also removes the PSK entry
-	err := RemoveTunnelConfig(cfg, "tun-remove")
+	err := RemoveTunnelConfig(cfg, "tun-11223344")
 	if err != nil {
 		t.Fatalf("RemoveTunnelConfig() error: %v", err)
 	}
 
-	confPath := filepath.Join(dir, "conf.d", "tun-remove.conf")
+	confPath := filepath.Join(dir, "conf.d", "tun-11223344.conf")
 	if _, statErr := os.Stat(confPath); !os.IsNotExist(statErr) {
 		t.Error("config file should be deleted")
 	}
@@ -254,7 +282,7 @@ func TestRemoveTunnelConfig(t *testing.T) {
 func TestRemoveTunnelConfig_NonExistent(t *testing.T) {
 	cfg, _ := testConfig(t)
 
-	err := RemoveTunnelConfig(cfg, "tun-nonexistent")
+	err := RemoveTunnelConfig(cfg, "tun-aabbccdd")
 	if err != nil {
 		t.Errorf("RemoveTunnelConfig() on non-existent file should return nil, got: %v", err)
 	}

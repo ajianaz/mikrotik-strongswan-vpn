@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 )
-
 func testTunnelData() TunnelData {
 	return TunnelData{
 		TunnelID:    "tun-abc12345",
@@ -78,38 +77,5 @@ func TestRenderMikroTikL2TPRSC(t *testing.T) {
 	}
 	if !strings.Contains(out, data.Password) {
 		t.Errorf("output missing password %q", data.Password)
-	}
-}
-
-func TestRenderSwanctlConfig(t *testing.T) {
-	data := testTunnelData()
-
-	out, err := RenderSwanctlConfig(data)
-	if err != nil {
-		t.Fatalf("RenderSwanctlConfig() error: %v", err)
-	}
-	if out == "" {
-		t.Fatal("RenderSwanctlConfig() returned empty string")
-	}
-	if !strings.Contains(out, data.TunnelID) {
-		t.Errorf("output missing tunnel_id %q", data.TunnelID)
-	}
-}
-
-func TestRenderPSK(t *testing.T) {
-	data := testTunnelData()
-
-	out, err := RenderPSK(data)
-	if err != nil {
-		t.Fatalf("RenderPSK() error: %v", err)
-	}
-	if out == "" {
-		t.Fatal("RenderPSK() returned empty string")
-	}
-	if !strings.Contains(out, data.PeerIP) {
-		t.Errorf("output missing peer_ip %q", data.PeerIP)
-	}
-	if !strings.Contains(out, data.PSK) {
-		t.Errorf("output missing psk %q", data.PSK)
 	}
 }

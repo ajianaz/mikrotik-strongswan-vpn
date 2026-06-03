@@ -12,10 +12,13 @@ package strongswan
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
+	"syscall"
 )
 
 // Config holds the paths and container reference for strongSwan operations.
@@ -29,6 +32,18 @@ type Config struct {
 
 // DefaultL2TPSecretFile is the default path for the L2TP chap-secrets file.
 const DefaultL2TPSecretFile = "/etc/ppp/chap-secrets"
+
+// tunnelIDRe validates server-generated tunnel IDs: tun- + 8 lowercase hex chars.
+var tunnelIDRe = regexp.MustCompile(`^tun-[a-f0-9]{8}$`)
+
+// validateTunnelID checks that a tunnel ID is safe for use in file paths.
+// Returns error if the ID does not match the expected server-generated format.
+func validateTunnelID(tunnelID string) error {
+	if !tunnelIDRe.MatchString(tunnelID) {
+		return fmt.Errorf("invalid tunnel ID format %q: must match tun-[a-f0-9]{8}", tunnelID)
+	}
+	return nil
+}
 
 // TunnelData contains all information needed to generate a swanctl
 // connection config and PSK entry for a single tunnel.
@@ -44,6 +59,9 @@ type TunnelData struct {
 // the given tunnel to {ConfigDir}/{TunnelID}.conf. The directory is
 // created with os.MkdirAll if it does not exist.
 func WriteTunnelConfig(cfg Config, data TunnelData) error {
+	if err := validateTunnelID(data.TunnelID); err != nil {
+		return fmt.Errorf("write tunnel config: %w", err)
+	}
 	if err := os.MkdirAll(cfg.ConfigDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir config dir: %w", err)
 	}
@@ -108,6 +126,10 @@ func WritePSK(cfg Config, data TunnelData) error {
 // tunnel ID and removes its associated PSK entry from the secret file.
 // The operation is idempotent: it returns nil if the files do not exist.
 func RemoveTunnelConfig(cfg Config, tunnelID string) error {
+	if err := validateTunnelID(tunnelID); err != nil {
+		return fmt.Errorf("remove tunnel config: %w", err)
+	}
+
 	// Remove config file (idempotent).
 	confPath := fmt.Sprintf("%s/%s.conf", cfg.ConfigDir, tunnelID)
 	if err := os.Remove(confPath); err != nil && !os.IsNotExist(err) {
@@ -124,40 +146,66 @@ func RemoveTunnelConfig(cfg Config, tunnelID string) error {
 }
 
 // RemovePSK removes the tagged PSK entry (comment line + PSK line) for
-// the given tunnel ID from the secret file. It is idempotent: if the file
-// does not exist or contains no matching entry, nil is returned.
+// the given tunnel ID from the secret file using file-level locking to
+// prevent TOCTOU races. It is idempotent: if the file does not exist or
+// contains no matching entry, nil is returned.
 func RemovePSK(cfg Config, tunnelID string) error {
-	content, err := os.ReadFile(cfg.SecretFile)
+	if err := validateTunnelID(tunnelID); err != nil {
+		return fmt.Errorf("remove psk: %w", err)
+	}
+
+	// Open with RDWR for flock (create if missing for idempotent behavior).
+	f, err := os.OpenFile(cfg.SecretFile, os.O_RDWR|os.O_CREATE, 0o640)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read secret file: %w", err)
+		return fmt.Errorf("open secret file: %w", err)
 	}
+	defer f.Close()
 
-	tag := fmt.Sprintf("# tunnel:%s", tunnelID)
-	lines := strings.Split(string(content), "\n")
-	var filtered []string
-	skipNext := false
-
-	for _, line := range lines {
-		if skipNext {
-			skipNext = false
-			continue
+	return withFileLock(f, func() error {
+		content, err := io.ReadAll(f)
+		if err != nil {
+			return fmt.Errorf("read secret file: %w", err)
 		}
-		if strings.TrimSpace(line) == tag {
-			skipNext = true
-			continue
+
+		tag := fmt.Sprintf("# tunnel:%s", tunnelID)
+		lines := strings.Split(string(content), "\n")
+		var filtered []string
+		skipNext := false
+
+		for _, line := range lines {
+			if skipNext {
+				skipNext = false
+				continue
+			}
+			if strings.TrimSpace(line) == tag {
+				skipNext = true
+				continue
+			}
+			filtered = append(filtered, line)
 		}
-		filtered = append(filtered, line)
-	}
 
-	if err := os.WriteFile(cfg.SecretFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil { //nolint:gosec // strongSwan secrets need 0640
-		return fmt.Errorf("rewrite secret file: %w", err)
-	}
+		if err := f.Truncate(0); err != nil {
+			return fmt.Errorf("truncate secret file: %w", err)
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			return fmt.Errorf("seek secret file: %w", err)
+		}
+		if _, err := f.WriteString(strings.Join(filtered, "\n")); err != nil {
+			return fmt.Errorf("rewrite secret file: %w", err)
+		}
 
-	slog.Info("removed psk entry", "tunnel_id", tunnelID)
-	return nil
+		slog.Info("removed psk entry", "tunnel_id", tunnelID)
+		return nil
+	})
+}
+
+// withFileLock acquires an exclusive flock on f, calls fn, then releases.
+func withFileLock(f *os.File, fn func() error) error {
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("flock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	return fn()
 }
 
 // ReloadSwanctl instructs the strongSwan daemon inside the Docker
@@ -196,41 +244,53 @@ func WriteEAPSecret(cfg Config, username, password string) error {
 }
 
 // RemoveEAPSecret removes the tagged EAP secret entry (comment line + EAP
-// line) for the given username from the swanctl secret file. It is
-// idempotent: if the file does not exist or contains no matching entry,
-// nil is returned.
+// line) for the given username from the swanctl secret file using file-level
+// locking to prevent TOCTOU races. It is idempotent: if the file does not
+// exist or contains no matching entry, nil is returned.
 func RemoveEAPSecret(cfg Config, username string) error {
-	content, err := os.ReadFile(cfg.SecretFile)
+	// Open with RDWR for flock (create if missing for idempotent behavior).
+	f, err := os.OpenFile(cfg.SecretFile, os.O_RDWR|os.O_CREATE, 0o640)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read secret file: %w", err)
+		return fmt.Errorf("open secret file: %w", err)
 	}
+	defer f.Close()
 
-	tag := fmt.Sprintf("# tunnel-eap:%s", username)
-	lines := strings.Split(string(content), "\n")
-	var filtered []string
-	skipNext := false
-
-	for _, line := range lines {
-		if skipNext {
-			skipNext = false
-			continue
+	return withFileLock(f, func() error {
+		content, err := io.ReadAll(f)
+		if err != nil {
+			return fmt.Errorf("read secret file: %w", err)
 		}
-		if strings.TrimSpace(line) == tag {
-			skipNext = true
-			continue
+
+		tag := fmt.Sprintf("# tunnel-eap:%s", username)
+		lines := strings.Split(string(content), "\n")
+		var filtered []string
+		skipNext := false
+
+		for _, line := range lines {
+			if skipNext {
+				skipNext = false
+				continue
+			}
+			if strings.TrimSpace(line) == tag {
+				skipNext = true
+				continue
+			}
+			filtered = append(filtered, line)
 		}
-		filtered = append(filtered, line)
-	}
 
-	if err := os.WriteFile(cfg.SecretFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil {
-		return fmt.Errorf("rewrite secret file: %w", err)
-	}
+		if err := f.Truncate(0); err != nil {
+			return fmt.Errorf("truncate secret file: %w", err)
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			return fmt.Errorf("seek secret file: %w", err)
+		}
+		if _, err := f.WriteString(strings.Join(filtered, "\n")); err != nil {
+			return fmt.Errorf("rewrite secret file: %w", err)
+		}
 
-	slog.Info("removed eap secret", "username", username)
-	return nil
+		slog.Info("removed eap secret", "username", username)
+		return nil
+	})
 }
 
 // WriteL2TPSecret appends a CHAP secret entry for the given username to the
@@ -259,36 +319,49 @@ func WriteL2TPSecret(cfg Config, username, password string) error {
 }
 
 // RemoveL2TPSecret removes all CHAP secret entries for the given username
-// from the L2TP chap-secrets file. It is idempotent: if the file does not
-// exist or contains no matching entry, nil is returned.
+// from the L2TP chap-secrets file using file-level locking to prevent
+// TOCTOU races. It is idempotent: if the file does not exist or contains
+// no matching entry, nil is returned.
 func RemoveL2TPSecret(cfg Config, username string) error {
 	l2tpFile := cfg.L2TPSecretFile
 	if l2tpFile == "" {
 		l2tpFile = DefaultL2TPSecretFile
 	}
 
-	content, err := os.ReadFile(l2tpFile)
+	// Open with RDWR for flock (create if missing for idempotent behavior).
+	f, err := os.OpenFile(l2tpFile, os.O_RDWR|os.O_CREATE, 0o640)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+		return fmt.Errorf("open l2tp chap-secrets file: %w", err)
+	}
+	defer f.Close()
+
+	return withFileLock(f, func() error {
+		content, err := io.ReadAll(f)
+		if err != nil {
+			return fmt.Errorf("read l2tp chap-secrets file: %w", err)
 		}
-		return fmt.Errorf("read l2tp chap-secrets file: %w", err)
-	}
 
-	lines := strings.Split(string(content), "\n")
-	var filtered []string
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) > 0 && fields[0] == username {
-			continue
+		lines := strings.Split(string(content), "\n")
+		var filtered []string
+		for _, line := range lines {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == username {
+				continue
+			}
+			filtered = append(filtered, line)
 		}
-		filtered = append(filtered, line)
-	}
 
-	if err := os.WriteFile(l2tpFile, []byte(strings.Join(filtered, "\n")), 0o640); err != nil { //nolint:gosec // strongSwan config requires 0644
-		return fmt.Errorf("rewrite l2tp chap-secrets file: %w", err)
-	}
+		if err := f.Truncate(0); err != nil {
+			return fmt.Errorf("truncate l2tp chap-secrets file: %w", err)
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			return fmt.Errorf("seek l2tp chap-secrets file: %w", err)
+		}
+		if _, err := f.WriteString(strings.Join(filtered, "\n")); err != nil {
+			return fmt.Errorf("rewrite l2tp chap-secrets file: %w", err)
+		}
 
-	slog.Info("removed l2tp secret", "username", username, "file", l2tpFile)
-	return nil
+		slog.Info("removed l2tp secret", "username", username, "file", l2tpFile)
+		return nil
+	})
 }
