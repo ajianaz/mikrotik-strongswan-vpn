@@ -57,10 +57,10 @@ type Tunnel struct {
 	PeerIP           string          `json:"peer_ip"`
 	LocalSubnet      string          `json:"local_subnet"`
 	AuthType         string          `json:"auth_type"`
-	PSK              string          `json:"psk,omitempty"`
-	Username         string          `json:"username,omitempty"`
-	PasswordHash     string          `json:"-"`
-	PasswordEncrypted string         `json:"-"` // AES-256-GCM encrypted plaintext password
+	PSK              *string        `json:"psk,omitempty"`
+	Username         *string        `json:"username,omitempty"`
+	PasswordHash     *string        `json:"-"`
+	PasswordEncrypted *string        `json:"-"` // AES-256-GCM encrypted plaintext password
 	Status           string          `json:"status"`
 	Metadata         json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
@@ -257,7 +257,7 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		PeerIP:      t.PeerIP,
 		LocalIP:     s.localIP,
 		LocalSubnet: t.LocalSubnet,
-		PSK:         t.PSK,
+		PSK:         derefString(t.PSK),
 	}
 	// Only PSK tunnels need per-tunnel connection config
 	if authType == AuthTypePSK {
@@ -272,14 +272,14 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	// Write secrets based on auth type.
 	switch authType {
 	case AuthTypeEAP:
-		if err := strongswan.WriteEAPSecret(s.swanCfg, t.Username, password); err != nil {
+		if err := strongswan.WriteEAPSecret(s.swanCfg, derefString(t.Username), password); err != nil {
 			_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write eap secret: %w", err)
 		}
 	case AuthTypeL2TP:
-		if err := strongswan.WriteL2TPSecret(s.swanCfg, t.Username, password); err != nil {
+		if err := strongswan.WriteL2TPSecret(s.swanCfg, derefString(t.Username), password); err != nil {
 			_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
 			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
@@ -436,10 +436,10 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 	password := ""
 	switch strings.ToLower(t.AuthType) {
 	case AuthTypeEAP, AuthTypeL2TP:
-		if t.PasswordEncrypted == "" {
+		if t.PasswordEncrypted == nil || *t.PasswordEncrypted == "" {
 			return "", fmt.Errorf("tunnel %s has no encrypted password (may need re-creation)", tunnelID)
 		}
-		password, err = crypto.Decrypt(s.encryptionKey, t.PasswordEncrypted)
+		password, err = crypto.Decrypt(s.encryptionKey, *t.PasswordEncrypted)
 		if err != nil {
 			return "", fmt.Errorf("decrypt password for %s: %w", tunnelID, err)
 		}
@@ -450,9 +450,9 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 		PeerIP:      t.PeerIP,
 		LocalIP:     s.localIP,
 		LocalSubnet: t.LocalSubnet,
-		PSK:         t.PSK,
+		PSK:         derefString(t.PSK),
 		AuthType:    t.AuthType,
-		Username:    t.Username,
+		Username:    derefString(t.Username),
 		Password:    password,
 	}
 
@@ -482,6 +482,14 @@ func (s *Service) ReloadAll(_ context.Context) error {
 }
 
 // --- helpers ---
+
+// derefString safely dereferences a *string pointer, returning "" for nil.
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
 
 // generateTunnelID creates a human-readable tunnel ID: "tun-" + 8 random hex chars.
 func generateTunnelID() (string, error) {
@@ -537,15 +545,15 @@ type CreateTunnelResponse struct {
 func (s *Service) removeSecretByAuthType(_ context.Context, t Tunnel) {
 	switch t.AuthType {
 	case AuthTypeEAP:
-		if t.Username != "" {
-			if err := strongswan.RemoveEAPSecret(s.swanCfg, t.Username); err != nil {
+		if t.Username != nil && *t.Username != "" {
+			if err := strongswan.RemoveEAPSecret(s.swanCfg, *t.Username); err != nil {
 				slog.Error("failed to remove eap secret during rollback",
 					"tunnel_id", t.TunnelID, "error", err)
 			}
 		}
 	case AuthTypeL2TP:
-		if t.Username != "" {
-			if err := strongswan.RemoveL2TPSecret(s.swanCfg, t.Username); err != nil {
+		if t.Username != nil && *t.Username != "" {
+			if err := strongswan.RemoveL2TPSecret(s.swanCfg, *t.Username); err != nil {
 				slog.Error("failed to remove l2tp secret during rollback",
 					"tunnel_id", t.TunnelID, "error", err)
 			}
