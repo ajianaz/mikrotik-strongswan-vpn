@@ -60,8 +60,8 @@ services:
     volumes:
       # Shared swanctl config — vpn-manager writes here, vpn-server reads here
       - vpn-configs:/etc/swanctl
-      # NOTE: strongswan.conf is copied into the image at build time (see server/Dockerfile)
-      # No host mount needed — avoids "file not found" on fresh deploys
+      # Shared PPP config — vpn-manager writes chap-secrets, vpn-server reads for xl2tpd
+      - vpn-ppp:/etc/ppp
 
     healthcheck:
       test: ["CMD-SHELL", "swanctl --stats 2>/dev/null | grep -q 'loaded' || exit 1"]
@@ -79,6 +79,8 @@ services:
     volumes:
       # Same shared volume as vpn-server — writes swanctl configs here
       - vpn-configs:/etc/swanctl
+      # Shared PPP config — writes L2TP chap-secrets for xl2tpd
+      - vpn-ppp:/etc/ppp
 
       # SECURITY NOTE (#54): Mounting the Docker socket (even read-only) exposes
       # container metadata to the vpn-manager API process. For multi-tenant
@@ -126,4 +128,5 @@ networks:
 
 volumes:
   vpn-configs:
+  vpn-ppp:
   postgres-data:

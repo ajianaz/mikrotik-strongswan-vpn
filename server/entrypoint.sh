@@ -42,6 +42,24 @@ echo "[entrypoint] === Executing charon ===" >&2
 
 # ── Bootstrap xl2tpd / pppd ──
 mkdir -p /var/run/xl2tpd
+
+# Ensure options.xl2tpd exists (volume mount may override Dockerfile COPY)
+if [[ ! -f /etc/ppp/options.xl2tpd ]]; then
+  cat > /etc/ppp/options.xl2tpd << 'EOF'
+name = l2tp-vpn
+ms-dns = 10.10.10.1
+nodefaultroute
+debug
+lock
+nobsdcomp
+nopcomp
+noaccomp
+mtu 1400
+mru 1400
+EOF
+  echo "[entrypoint] Created default /etc/ppp/options.xl2tpd"
+fi
+
 if [[ ! -f /etc/ppp/chap-secrets ]]; then
   touch /etc/ppp/chap-secrets
   chmod 640 /etc/ppp/chap-secrets
