@@ -2,10 +2,20 @@ name: Deploy to Server
 
 on:
   workflow_run:
-    workflows: ["Build & Push Docker Images"]
+    workflows: ["CI"]
     branches: [develop, main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target (leave auto for branch-based)"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - dev
+          - prod
 
 concurrency:
   group: deploy-${{ github.event.workflow_run.head_branch || 'manual' }}
@@ -13,6 +23,7 @@ concurrency:
 
 permissions:
   id-token: write  # Required for Infisical OIDC
+  actions: read    # Required for workflow_run trigger
 
 jobs:
   deploy:
@@ -104,6 +115,11 @@ jobs:
               fi
             done
 
+            # ── 3b. Post-healthy stabilization delay ────
+            echo ""
+            echo ">>> Waiting 15s for services to fully initialize..."
+            sleep 15
+
             # ── 4. Collect logs ────────────────────────
             echo ""
             echo ">>> [4/5] Collecting logs..."
@@ -113,16 +129,16 @@ jobs:
             docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.Ports}}"
 
             echo ""
-            echo "=== vpn-server (first 30 lines = init) ==="
-            docker logs vpn-server 2>&1 | head -30 || true
+            echo "=== vpn-server (init logs) ==="
+            docker logs vpn-server 2>&1 | grep -E '\[entrypoint\]|Starting xl2tpd|eap-mschapv2|xl2tpd.*Unable|parse_config|ERROR' || echo "(no init issues)"
 
             echo ""
-            echo "=== vpn-server (last 15 lines = crash) ==="
-            docker logs vpn-server 2>&1 | tail -15 || true
+            echo "=== vpn-server (last 20 lines) ==="
+            docker logs vpn-server 2>&1 | tail -20 || true
 
             echo ""
-            echo "=== vpn-manager (last 10 lines) ==="
-            docker logs vpn-manager 2>&1 | tail -10 || true
+            echo "=== vpn-manager (all logs) ==="
+            docker logs vpn-manager 2>&1 || true
 
             # ── 5. Log analysis + verdict ──────────────
             echo ""
@@ -177,7 +193,18 @@ jobs:
             # Check xl2tpd (if running inside container)
             L2TP_CHECK=$(docker exec vpn-server pgrep -c xl2tpd 2>/dev/null || echo "0")
             if [ "$L2TP_CHECK" -ge 1 ]; then
-              echo "  ✅ xl2tpd running"
+              echo "  ✅ xl2tpd running (PID: $(docker exec vpn-server pgrep xl2tpd 2>/dev/null))"
+            else
+              echo "  ❌ xl2tpd NOT running"
+              FAIL=1
+            fi
+
+            # Check if L2TP transport config loaded
+            L2TP_CONN=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "l2tp-transport" || echo "0")
+            if [ "$L2TP_CONN" -ge 1 ]; then
+              echo "  ✅ L2TP transport config loaded"
+            else
+              echo "  ⚠️ L2TP transport config not found (0 connections)"
             fi
 
             # Check API healthz via docker exec — derive port from LISTEN env
