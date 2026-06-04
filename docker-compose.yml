@@ -113,9 +113,6 @@ services:
       - "traefik.http.services.vpn-dev.loadbalancer.server.port=8080"
       - "traefik.docker.network=vpn-strongswan-dev_vpn-strongswan"
 
-    ports:
-      - "127.0.0.1:${LISTEN_PORT:-6060}:8080"
-
     networks:
       - vpn-strongswan
       - infra-net
