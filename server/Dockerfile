@@ -17,7 +17,7 @@ ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 # Install strongSwan — core + extra plugins (EAP-MSCHAPv2).
 # libcharon-extra-plugins provides eap.so and eap-mschapv2.so needed for
 # IKEv2 EAP auth. ARM segfault was caused by loading ALL 50+ plugins;
-# the whitelist below (line 59) keeps only the safe subset.
+# the whitelist below keeps only the safe subset.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libstrongswan \
@@ -26,7 +26,6 @@ RUN apt-get update \
         libcharon-extra-plugins \
         strongswan-swanctl \
         strongswan-pki \
-        strongswan-plugin-eap-mschapv2 \
         xl2tpd \
         ppp \
         gettext-base \
@@ -49,27 +48,29 @@ RUN rm -rf /etc/strongswan.d/
 # charon on ARM IGNORES load_modular=no — it dlopen()s ALL .so files in
 # /usr/lib/ipsec/plugins/. Extra plugins cause SIGSEGV during thread init.
 #
-# Fix: remove ALL plugins, keep ONLY what's needed for IKEv2 PSK + swanctl.
+# Fix: keep ONLY plugins we know are needed. Delete everything else.
 #
-# Keep (26): aes sha1 sha2 sha384 sha512 md5 mgf1 random nonce hmac
-#            gmp fips-prf rc2 pubkey pkcs1 x509 kernel-netlink
-#            socket-default vici updown swanctl
-#            eap eap-identity eap-mschapv2 attr resolve
-#            ──────────────────────────────────────────
-#            Last 5 added for EAP-MSCHAPv2 auth (IKEv2 EAP).
-#            Safe on ARM: crash was from loading 50+ plugins, not from these.
+# Required for IKEv2 EAP: eap, eap-identity, eap-mschapv2
+# Required for IKEv1 L2TP transport: aes, sha1, md5, hmac, gmp (DH)
+# Required for swanctl/charon: kernel-netlink, socket-default, vici,
+#   updown, swanctl, attr, resolve, pubkey, pkcs1, x509
+# Required for L2TP: (xl2tpd handles L2TP, not strongswan plugins)
+# Also keep: sha2, sha384, sha512 (for IKEv2 ECP), fips-prf, rc2, mgf1,
+#   random, nonce, ctr (for AES-CBC/CTR)
 RUN cd /usr/lib/ipsec/plugins \
-    && ls *.so | grep -v -E \
-        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|attr|resolve)\.so$' \
-    | xargs rm -f \
-    && echo "Remaining plugins:" && ls *.so | sort
-
-# Verify eap-mschapv2 plugin exists — critical for IKEv2 EAP auth
-RUN if [ ! -f /usr/lib/ipsec/plugins/libstrongswan-eap-mschapv2.so ]; then \
-        echo "WARNING: eap-mschapv2.so not found after whitelist cleanup"; \
-        echo "Searching for plugin..."; \
-        find /usr/lib/ipsec -name '*eap*mschap*' -o -name '*mschapv2*' 2>/dev/null; \
-        dpkg -S '*eap-mschapv2*' 2>/dev/null || true; \
+    && ls *.so > /tmp/all_plugins.txt \
+    && KEEP='aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|attr|resolve|ctr' \
+    && grep -vE "^libstrongswan-(${KEEP})\\.so$" /tmp/all_plugins.txt | xargs rm -f \
+    && echo "Remaining plugins:" && ls *.so | sort \
+    && echo "=== EAP-MSCHAPv2 CHECK ===" \
+    && if [ -f libstrongswan-eap-mschapv2.so ]; then \
+        echo "OK: libstrongswan-eap-mschapv2.so present"; \
+    else \
+        echo "WARNING: libstrongswan-eap-mschapv2.so NOT found!"; \
+        echo "Installed EAP plugins:"; ls *eap* 2>/dev/null || true; \
+        echo "Available from packages:"; \
+        dpkg -L libcharon-extra-plugins 2>/dev/null | grep -i eap || true; \
+        exit 1; \
     fi
 
 # Copy dummy updown script
