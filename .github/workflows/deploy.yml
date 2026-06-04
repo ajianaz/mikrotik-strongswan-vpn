@@ -88,6 +88,8 @@ jobs:
             # ── 1. Pull code + images ──────────────────
             echo ""
             echo ">>> [1/5] Pulling latest code + images..."
+            git fetch origin
+            git checkout ${{ steps.target.outputs.branch }}
             git pull --ff-only
             docker compose pull
 
