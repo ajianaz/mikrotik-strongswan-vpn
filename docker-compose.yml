@@ -109,7 +109,6 @@ services:
       - "${LISTEN:-8080}"
 
     networks:
-      - hermes-net
       - vpn-strongswan
 
     depends_on:
@@ -126,11 +125,8 @@ services:
       start_period: 10s
 
 networks:
-  hermes-net:
-    external: true
   vpn-strongswan:
     driver: bridge
-
 volumes:
   vpn-configs:
   vpn-ppp:
