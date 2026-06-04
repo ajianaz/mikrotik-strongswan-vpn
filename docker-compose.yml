@@ -22,7 +22,7 @@
 
 services:
   # ── PostgreSQL ─────────────────────────────────────────────────────────
-  postgres:
+  vpn-db:
     image: postgres:17-alpine
     container_name: vpn-db
     restart: unless-stopped
@@ -111,13 +111,17 @@ services:
       - "traefik.http.routers.vpn-dev.tls=true"
       - "traefik.http.routers.vpn-dev.tls.certresolver=myresolver"
       - "traefik.http.services.vpn-dev.loadbalancer.server.port=8080"
+      - "traefik.docker.network=vpn-strongswan-dev_vpn-strongswan"
+
+    ports:
+      - "127.0.0.1:${LISTEN_PORT:-6060}:8080"
 
     networks:
       - vpn-strongswan
       - infra-net
 
     depends_on:
-      postgres:
+      vpn-db:
         condition: service_healthy
       vpn-server:
         condition: service_healthy
