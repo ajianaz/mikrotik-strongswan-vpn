@@ -30,7 +30,6 @@ import (
 const (
 	AuthTypeEAP  = "eap"
 	AuthTypeL2TP = "l2tp"
-	AuthTypePSK  = "psk"
 )
 
 // Sentinel errors.
@@ -71,7 +70,7 @@ type Tunnel struct {
 type CreateTunnelInput struct {
 	Name        string          `json:"name"`
 	LocalSubnet string          `json:"local_subnet,omitempty"` // default "10.10.10.0/24"
-	AuthType    string          `json:"auth_type,omitempty"`    // "eap" (default), "l2tp", or "psk"
+		AuthType    string          `json:"auth_type,omitempty"`    // "eap" (default) or "l2tp"
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 }
 
@@ -82,6 +81,8 @@ type Service struct {
 	mu           sync.Mutex    // #53 — protects strongSwan file operations against TOCTOU races
 	localIP      string        // VPN server gateway address (configurable via VPN_LOCAL_IP, #57)
 	encryptionKey []byte
+	l2tpPSK      string        // L2TP/IPSec transport mode PSK
+	serverIP     string        // VPN server public IP for RouterOS L2TP templates
 }
 
 // TunnelService defines the methods used by the HTTP handler.
@@ -96,12 +97,14 @@ type TunnelService interface {
 }
 
 // NewService creates a new Service instance.
-func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte, localIP string) *Service {
+func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte, localIP string, l2tpPSK string, serverIP string) *Service {
 	return &Service{
 		pool:         pool,
 		swanCfg:      swanCfg,
 		encryptionKey: encryptionKey,
 		localIP:      localIP,
+		l2tpPSK:      l2tpPSK,
+		serverIP:     serverIP,
 	}
 }
 
@@ -153,7 +156,6 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 
 	// 3. Generate credentials based on auth type.
 	var (
-		psk          string
 		username     string
 		password     string
 		passwordHash string
@@ -170,13 +172,8 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 		if err != nil {
 			return nil, fmt.Errorf("hash password: %w", err)
 		}
-	case AuthTypePSK:
-		psk, err = generatePSK()
-		if err != nil {
-			return nil, fmt.Errorf("generate psk: %w", err)
-		}
 	default:
-		return nil, fmt.Errorf("invalid auth_type %q: must be %q, %q, or %q", authType, AuthTypeEAP, AuthTypeL2TP, AuthTypePSK)
+		return nil, fmt.Errorf("invalid auth_type %q: must be %q or %q", authType, AuthTypeEAP, AuthTypeL2TP)
 	}
 
 	// 4. Default local subnet.
@@ -204,10 +201,10 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 
 	// 5. INSERT tunnel record with placeholder peer_ip.
 	err = tx.QueryRow(ctx,
-		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, psk, username, password_hash, password_encrypted, status, metadata)
-		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, $8, 'active', $9)
+		`INSERT INTO vpn_tunnels (tunnel_id, name, peer_ip, local_subnet, auth_type, username, password_hash, password_encrypted, status, metadata)
+		 VALUES ($1, $2, '0.0.0.0', $3, $4, $5, $6, $7, 'active', $8)
 		 RETURNING id, tunnel_id, name, peer_ip::TEXT, local_subnet::TEXT, auth_type, psk, username, password_hash, password_encrypted, status, metadata, created_at, updated_at`,
-		tunnelID, input.Name, localSubnet, authType, psk, username, passwordHash, passwordEncrypted, input.Metadata,
+		tunnelID, input.Name, localSubnet, authType, username, passwordHash, passwordEncrypted, input.Metadata,
 	).Scan(&t.ID, &t.TunnelID, &t.Name, &t.PeerIP, &t.LocalSubnet, &t.AuthType, &t.PSK, &t.Username, &t.PasswordHash, &t.PasswordEncrypted, &t.Status, &t.Metadata, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("insert tunnel: %w", err)
@@ -251,24 +248,6 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Build TunnelData for strongSwan operations.
-	data := strongswan.TunnelData{
-		TunnelID:    t.TunnelID,
-		PeerIP:      t.PeerIP,
-		LocalIP:     s.localIP,
-		LocalSubnet: t.LocalSubnet,
-		PSK:         derefString(t.PSK),
-	}
-	// Only PSK tunnels need per-tunnel connection config
-	if authType == AuthTypePSK {
-		if err := strongswan.WriteTunnelConfig(s.swanCfg, data); err != nil {
-			// Cleanup: remove DB entry and release IP.
-			_ = s.deleteTunnelDB(ctx, t.TunnelID)
-			s.releaseIP(ctx, t.TunnelID)
-			return nil, fmt.Errorf("write tunnel config: %w", err)
-		}
-	}
-
 	// Write secrets based on auth type.
 	switch authType {
 	case AuthTypeEAP:
@@ -284,14 +263,6 @@ func (s *Service) CreateTunnel(ctx context.Context, input CreateTunnelInput) (*C
 			_ = s.deleteTunnelDB(ctx, t.TunnelID)
 			s.releaseIP(ctx, t.TunnelID)
 			return nil, fmt.Errorf("write l2tp secret: %w", err)
-		}
-	case AuthTypePSK:
-		if err := strongswan.WritePSK(s.swanCfg, data); err != nil {
-			// Cleanup: remove DB entry, release IP, remove config file.
-			_ = strongswan.RemoveTunnelConfig(s.swanCfg, t.TunnelID)
-			_ = s.deleteTunnelDB(ctx, t.TunnelID)
-			s.releaseIP(ctx, t.TunnelID)
-			return nil, fmt.Errorf("write psk: %w", err)
 		}
 	}
 
@@ -379,13 +350,6 @@ func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
 
 	// 2-3. Remove strongSwan config + secrets under mutex (#53).
 	s.mu.Lock()
-	// 2. Remove strongSwan config (best-effort, PSK only).
-	if authType == AuthTypePSK {
-		if err := strongswan.RemoveTunnelConfig(s.swanCfg, tunnelID); err != nil {
-			slog.Error("failed to remove tunnel config, continuing cleanup",
-				"tunnel_id", tunnelID, "error", err)
-		}
-	}
 
 	// 3. Remove secrets based on auth type (best-effort).
 	switch authType {
@@ -400,10 +364,6 @@ func (s *Service) DeleteTunnel(ctx context.Context, tunnelID string) error {
 			if err := strongswan.RemoveL2TPSecret(s.swanCfg, username); err != nil {
 				slog.Error("failed to remove l2tp secret", "tunnel_id", tunnelID, "error", err)
 			}
-		}
-	case AuthTypePSK:
-		if err := strongswan.RemovePSK(s.swanCfg, tunnelID); err != nil {
-			slog.Error("failed to remove psk", "tunnel_id", tunnelID, "error", err)
 		}
 	}
 	s.mu.Unlock()
@@ -454,6 +414,8 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 		AuthType:    t.AuthType,
 		Username:    derefString(t.Username),
 		Password:    password,
+		ServerIP:    s.serverIP,
+		L2TPPSK:     s.l2tpPSK,
 	}
 
 	var rendered string
@@ -462,10 +424,8 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 		rendered, err = template.RenderMikroTikEAPRSC(data)
 	case AuthTypeL2TP:
 		rendered, err = template.RenderMikroTikL2TPRSC(data)
-	case AuthTypePSK:
-		rendered, err = template.RenderMikroTikRSC(data)
 	default:
-		rendered, err = template.RenderMikroTikRSC(data)
+		return "", fmt.Errorf("unsupported auth_type %q for tunnel %s", t.AuthType, tunnelID)
 	}
 	if err != nil {
 		return "", fmt.Errorf("render mikrotik rsc for %s: %w", tunnelID, err)
@@ -498,15 +458,6 @@ func generateTunnelID() (string, error) {
 		return "", err
 	}
 	return "tun-" + hex.EncodeToString(b), nil
-}
-
-// generatePSK creates a 32-character hex string for use as a pre-shared key.
-func generatePSK() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // releaseIP marks an IP in the pool as unallocated (best-effort logging).
@@ -557,11 +508,6 @@ func (s *Service) removeSecretByAuthType(_ context.Context, t Tunnel) {
 				slog.Error("failed to remove l2tp secret during rollback",
 					"tunnel_id", t.TunnelID, "error", err)
 			}
-		}
-	case AuthTypePSK:
-		if err := strongswan.RemovePSK(s.swanCfg, t.TunnelID); err != nil {
-			slog.Error("failed to remove psk during rollback",
-				"tunnel_id", t.TunnelID, "error", err)
 		}
 	}
 }

@@ -33,6 +33,7 @@ RUN apt-get update \
         iptables \
         procps \
         binutils \
+        jq \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

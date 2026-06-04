@@ -2,27 +2,38 @@ name: Deploy to Server
 
 on:
   workflow_run:
-    workflows: ["Build & Push Docker Images"]
+    workflows: ["CI"]
     branches: [develop, main]
     types: [completed]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deploy target"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - dev
+          - prod
 
 concurrency:
-  group: deploy-${{ github.event.workflow_run.head_branch || 'manual' }}
+  group: deploy-${{ github.event.workflow_run.head_branch || github.ref_name }}
   cancel-in-progress: false
 
 permissions:
   id-token: write  # Required for Infisical OIDC
+  actions: read    # Required for workflow_run
 
 jobs:
   deploy:
-    name: Deploy (${{ github.event.workflow_run.head_branch || 'manual' }})
+    name: Deploy (${{ github.event.workflow_run.head_branch || github.ref_name }})
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-    if: >
+    if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success')
+      github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Fetch shared secrets from Infisical
         uses: Infisical/secrets-action@v1.0.9
@@ -33,14 +44,28 @@ jobs:
           env-slug: "prod"
           domain: "https://infisical.ajianaz.dev"
 
-      - name: Determine deploy path
-        id: path
+      - name: Determine deploy target
+        id: target
         run: |
+          # Priority: manual input > workflow_run branch > default
+          MANUAL="${{ github.event.inputs.environment }}"
           BRANCH="${{ github.event.workflow_run.head_branch }}"
+
+          if [ "$MANUAL" != "auto" ] && [ -n "$MANUAL" ]; then
+            BRANCH="$MANUAL"
+          fi
+
+          # Fallback for workflow_dispatch without branch context
+          if [ -z "$BRANCH" ]; then
+            BRANCH="develop"
+          fi
+
           if [ "$BRANCH" = "main" ]; then
+            echo "branch=main" >> $GITHUB_OUTPUT
             echo "target=${{ secrets.DEPLOY_PATH_PROD }}" >> $GITHUB_OUTPUT
             echo "Deploying to PROD"
           else
+            echo "branch=develop" >> $GITHUB_OUTPUT
             echo "target=${{ secrets.DEPLOY_PATH_DEV }}" >> $GITHUB_OUTPUT
             echo "Deploying to DEV"
           fi
@@ -53,16 +78,17 @@ jobs:
           key: ${{ env.DEPLOY_SSH_KEY }}
           port: ${{ env.DEPLOY_PORT }}
           script: |
-            cd ${{ steps.path.outputs.target }}
+            cd ${{ steps.target.outputs.target }}
 
             echo "========================================"
             echo " DEPLOY: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo " Branch: ${{ steps.target.outputs.branch }}"
             echo "========================================"
 
             # ── 1. Pull code + images ──────────────────
             echo ""
             echo ">>> [1/5] Pulling latest code + images..."
-            git pull
+            git pull --ff-only
             docker compose pull
 
             # ── 2. Deploy ──────────────────────────────
@@ -161,7 +187,7 @@ jobs:
               FAIL=1
             fi
 
-            # Check strongSwan loaded connections (informational — 0 is OK if no config yet)
+            # Check strongSwan loaded connections
             CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" | tr -d '\n')
             SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" | tr -d '\n')
             CONN_COUNT=${CONN_COUNT:-0}
@@ -174,16 +200,22 @@ jobs:
               echo "  ✅ EAP-MSCHAPv2 plugin loaded"
             fi
 
-            # Check xl2tpd (if running inside container)
+            # Check xl2tpd
             L2TP_CHECK=$(docker exec vpn-server pgrep -c xl2tpd 2>/dev/null || echo "0")
             if [ "$L2TP_CHECK" -ge 1 ]; then
               echo "  ✅ xl2tpd running"
             fi
 
-            # Check API healthz via docker exec — derive port from LISTEN env
+            # Check L2TP transport config loaded
+            L2TP_CONN=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "l2tp-transport" || echo "0")
+            if [ "$L2TP_CONN" -ge 1 ]; then
+              echo "  ✅ L2TP transport config loaded"
+            fi
+
+            # Check API healthz
             MGR_PORT=$(docker exec vpn-manager sh -c 'echo ${LISTEN:-:8080} | tr -d :' 2>/dev/null)
             if docker exec vpn-manager wget -q -O /dev/null "http://localhost:${MGR_PORT}/healthz" 2>/dev/null; then
-              echo "  ✅ API /healthz: 200 (port ${MGR_PORT}, via docker exec)"
+              echo "  ✅ API /healthz: 200 (port ${MGR_PORT})"
             else
               echo "  ❌ API /healthz: unreachable (port ${MGR_PORT})"
               FAIL=1

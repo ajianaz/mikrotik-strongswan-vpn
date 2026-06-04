@@ -46,13 +46,12 @@ func validateTunnelID(tunnelID string) error {
 }
 
 // TunnelData contains all information needed to generate a swanctl
-// connection config and PSK entry for a single tunnel.
+// connection config for a single tunnel.
 type TunnelData struct {
 	TunnelID    string // e.g. "tun-abc123"
 	PeerIP      string // e.g. "203.0.113.5"
 	LocalIP     string // e.g. "10.10.10.1"
 	LocalSubnet string // e.g. "10.10.10.0/24"
-	PSK         string // 32-char hex
 }
 
 // WriteTunnelConfig writes the swanctl connection configuration file for
@@ -102,29 +101,9 @@ func WriteTunnelConfig(cfg Config, data TunnelData) error {
 	return nil
 }
 
-// WritePSK appends a PSK entry for the given tunnel to the swanctl secret
-// file. Each entry is tagged with a comment so it can be identified and
-// removed later. The file is created with mode 0640 if it does not exist.
-func WritePSK(cfg Config, data TunnelData) error {
-	entry := fmt.Sprintf("# tunnel:%s\n%s : PSK \"%s\"\n", data.TunnelID, data.PeerIP, data.PSK)
-
-	f, err := os.OpenFile(cfg.SecretFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
-	if err != nil {
-		return fmt.Errorf("open secret file: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := f.WriteString(entry); err != nil {
-		return fmt.Errorf("write psk entry: %w", err)
-	}
-
-	slog.Info("wrote psk entry", "tunnel_id", data.TunnelID, "peer_ip", data.PeerIP)
-	return nil
-}
-
 // RemoveTunnelConfig deletes the connection config file for the given
-// tunnel ID and removes its associated PSK entry from the secret file.
-// The operation is idempotent: it returns nil if the files do not exist.
+// tunnel ID. The operation is idempotent: it returns nil if the files do
+// not exist.
 func RemoveTunnelConfig(cfg Config, tunnelID string) error {
 	if err := validateTunnelID(tunnelID); err != nil {
 		return fmt.Errorf("remove tunnel config: %w", err)
@@ -136,67 +115,8 @@ func RemoveTunnelConfig(cfg Config, tunnelID string) error {
 		return fmt.Errorf("remove tunnel config %s: %w", confPath, err)
 	}
 
-	// Remove the PSK entry for this tunnel.
-	if err := RemovePSK(cfg, tunnelID); err != nil {
-		return fmt.Errorf("remove psk for tunnel %s: %w", tunnelID, err)
-	}
-
 	slog.Info("removed tunnel config", "tunnel_id", tunnelID)
 	return nil
-}
-
-// RemovePSK removes the tagged PSK entry (comment line + PSK line) for
-// the given tunnel ID from the secret file using file-level locking to
-// prevent TOCTOU races. It is idempotent: if the file does not exist or
-// contains no matching entry, nil is returned.
-func RemovePSK(cfg Config, tunnelID string) error {
-	if err := validateTunnelID(tunnelID); err != nil {
-		return fmt.Errorf("remove psk: %w", err)
-	}
-
-	// Open with RDWR for flock (create if missing for idempotent behavior).
-	f, err := os.OpenFile(cfg.SecretFile, os.O_RDWR|os.O_CREATE, 0o640)
-	if err != nil {
-		return fmt.Errorf("open secret file: %w", err)
-	}
-	defer f.Close()
-
-	return withFileLock(f, func() error {
-		content, err := io.ReadAll(f)
-		if err != nil {
-			return fmt.Errorf("read secret file: %w", err)
-		}
-
-		tag := fmt.Sprintf("# tunnel:%s", tunnelID)
-		lines := strings.Split(string(content), "\n")
-		var filtered []string
-		skipNext := false
-
-		for _, line := range lines {
-			if skipNext {
-				skipNext = false
-				continue
-			}
-			if strings.TrimSpace(line) == tag {
-				skipNext = true
-				continue
-			}
-			filtered = append(filtered, line)
-		}
-
-		if err := f.Truncate(0); err != nil {
-			return fmt.Errorf("truncate secret file: %w", err)
-		}
-		if _, err := f.Seek(0, 0); err != nil {
-			return fmt.Errorf("seek secret file: %w", err)
-		}
-		if _, err := f.WriteString(strings.Join(filtered, "\n")); err != nil {
-			return fmt.Errorf("rewrite secret file: %w", err)
-		}
-
-		slog.Info("removed psk entry", "tunnel_id", tunnelID)
-		return nil
-	})
 }
 
 // withFileLock acquires an exclusive flock on f, calls fn, then releases.

@@ -10,35 +10,11 @@ func testTunnelData() TunnelData {
 		PeerIP:      "203.0.113.5",
 		LocalIP:     "10.10.10.1",
 		LocalSubnet: "10.10.10.0/24",
-		PSK:         "abcdef1234567890abcdef1234567890",
-		AuthType:    "psk",
+		AuthType:    "eap",
 		Username:    "test-user",
 		Password:    "test-password-123",
-	}
-}
-
-func TestRenderMikroTikRSC(t *testing.T) {
-	data := testTunnelData()
-	data.AuthType = "psk"
-
-	out, err := RenderMikroTikRSC(data)
-	if err != nil {
-		t.Fatalf("RenderMikroTikRSC() error: %v", err)
-	}
-	if out == "" {
-		t.Fatal("RenderMikroTikRSC() returned empty string")
-	}
-	if !strings.Contains(out, data.TunnelID) {
-		t.Errorf("output missing tunnel_id %q", data.TunnelID)
-	}
-	if !strings.Contains(out, data.PeerIP) {
-		t.Errorf("output missing peer_ip %q", data.PeerIP)
-	}
-	if !strings.Contains(out, data.LocalSubnet) {
-		t.Errorf("output missing local_subnet %q", data.LocalSubnet)
-	}
-	if !strings.Contains(out, data.PSK) {
-		t.Errorf("output missing psk %q", data.PSK)
+		ServerIP:    "152.70.10.10",
+		L2TPPSK:     "vpn-l2tp-psk",
 	}
 }
 
