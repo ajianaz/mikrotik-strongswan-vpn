@@ -104,11 +104,17 @@ services:
       - L2TP_PSK=${L2TP_PSK:-vpn-l2tp-psk}
       - SERVER_PUBLIC_IP=${SERVER_PUBLIC_IP:-}
 
-    ports:
-      - "${LISTEN:-8080}"
+    labels:
+      - "traefik.enable=true"
+      - 'traefik.http.routers.vpn-dev.rule=Host(`${DOMAIN:-vpn-dev.ajianaz.dev}`)'
+      - "traefik.http.routers.vpn-dev.entrypoints=websecure"
+      - "traefik.http.routers.vpn-dev.tls=true"
+      - "traefik.http.routers.vpn-dev.tls.certresolver=myresolver"
+      - "traefik.http.services.vpn-dev.loadbalancer.server.port=8080"
 
     networks:
       - vpn-strongswan
+      - infra-net
 
     depends_on:
       postgres:
@@ -126,6 +132,8 @@ services:
 networks:
   vpn-strongswan:
     driver: bridge
+  infra-net:
+    external: true
 volumes:
   vpn-configs:
   vpn-ppp:
