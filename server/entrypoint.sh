@@ -23,6 +23,33 @@ if [[ ! -f "${SECRET_FILE}" ]]; then
   echo "[entrypoint] Created empty ${SECRET_FILE}"
 fi
 
+# Copy L2TP transport mode config if available (static IKEv1 config for L2TP/IPsec)
+if [[ -f /etc/swanctl/conf.d/l2tp-transport.conf ]]; then
+  echo "[entrypoint] L2TP transport config found in conf.d/"
+else
+  # Try to copy from a well-known location if bind-mounted
+  for src in /opt/config/l2tp-transport.conf /config/l2tp-transport.conf; do
+    if [[ -f "$src" ]]; then
+      cp "$src" "${CONF_DIR}/l2tp-transport.conf"
+      echo "[entrypoint] Copied L2TP transport config from ${src}"
+      break
+    fi
+  done
+fi
+
+# Append L2TP PSK to secret file if not already present
+if [[ -f /etc/swanctl/conf.d/l2tp-secret.conf ]]; then
+  if ! grep -q "%any %any" "${SECRET_FILE}" 2>/dev/null; then
+    cat /etc/swanctl/conf.d/l2tp-secret.conf >> "${SECRET_FILE}"
+    echo "[entrypoint] Appended L2TP PSK to ${SECRET_FILE}"
+  fi
+elif [[ -f "${CONF_DIR}/l2tp-secret.conf" ]]; then
+  if ! grep -q "%any %any" "${SECRET_FILE}" 2>/dev/null; then
+    cat "${CONF_DIR}/l2tp-secret.conf" >> "${SECRET_FILE}"
+    echo "[entrypoint] Appended L2TP PSK to ${SECRET_FILE}"
+  fi
+fi
+
 # Warn if swanctl.conf is missing (charon won't auto-load configs)
 if [[ ! -f "${SWANCTL_DIR}/swanctl.conf" ]]; then
   echo "[entrypoint] WARNING: ${SWANCTL_DIR}/swanctl.conf missing — charon may not load configs"

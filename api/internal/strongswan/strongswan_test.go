@@ -150,68 +150,6 @@ func TestRemoveL2TPSecret(t *testing.T) {
 	}
 }
 
-// --- WritePSK / RemovePSK ---
-
-func TestWritePSK(t *testing.T) {
-	cfg, _ := testConfig(t)
-	data := TunnelData{
-		TunnelID: "tun-abc12345",
-		PeerIP:   "203.0.113.5",
-		PSK:      "abcdef1234567890abcdef1234567890",
-	}
-
-	err := WritePSK(cfg, data)
-	if err != nil {
-		t.Fatalf("WritePSK() error: %v", err)
-	}
-
-	fileData, err := os.ReadFile(cfg.SecretFile)
-	if err != nil {
-		t.Fatalf("ReadFile() error: %v", err)
-	}
-
-	content := string(fileData)
-	if !strings.Contains(content, "# tunnel:tun-abc12345") {
-		t.Error("secret file missing PSK comment tag for tun-abc12345")
-	}
-	if !strings.Contains(content, "203.0.113.5 : PSK \"abcdef1234567890abcdef1234567890\"") {
-		t.Error("secret file missing PSK entry line")
-	}
-}
-
-func TestRemovePSK(t *testing.T) {
-	cfg, _ := testConfig(t)
-
-	// Write two PSK entries
-	WritePSK(cfg, TunnelData{TunnelID: "tun-aabbccdd", PeerIP: "1.2.3.4", PSK: "psk11111111111111111111111111111111"})
-	WritePSK(cfg, TunnelData{TunnelID: "tun-11223344", PeerIP: "5.6.7.8", PSK: "psk22222222222222222222222222222222"})
-
-	// Remove tun-aabbccdd
-	err := RemovePSK(cfg, "tun-aabbccdd")
-	if err != nil {
-		t.Fatalf("RemovePSK() error: %v", err)
-	}
-
-	fileData, _ := os.ReadFile(cfg.SecretFile)
-	content := string(fileData)
-
-	if strings.Contains(content, "# tunnel:tun-aabbccdd") {
-		t.Error("tun-aabbccdd PSK entry should be removed")
-	}
-	if !strings.Contains(content, "# tunnel:tun-11223344") {
-		t.Error("tun-11223344 PSK entry should still exist")
-	}
-}
-
-func TestRemovePSK_NonExistentFile(t *testing.T) {
-	cfg, _ := testConfig(t)
-
-	err := RemovePSK(cfg, "tun-aabbccdd")
-	if err != nil {
-		t.Errorf("RemovePSK() on non-existent file should return nil, got: %v", err)
-	}
-}
-
 // --- WriteTunnelConfig / RemoveTunnelConfig ---
 
 func TestWriteTunnelConfig(t *testing.T) {
@@ -221,7 +159,6 @@ func TestWriteTunnelConfig(t *testing.T) {
 		PeerIP:      "203.0.113.10",
 		LocalIP:     "10.10.10.1",
 		LocalSubnet: "10.10.10.0/24",
-		PSK:         "testpsk123",
 	}
 
 	err := WriteTunnelConfig(cfg, data)
@@ -261,13 +198,10 @@ func TestRemoveTunnelConfig(t *testing.T) {
 		PeerIP:      "1.2.3.4",
 		LocalIP:     "10.10.10.1",
 		LocalSubnet: "10.10.10.0/24",
-		PSK:         "removeme12345678901234567890",
 	}
 
 	WriteTunnelConfig(cfg, data)
-	WritePSK(cfg, data)
 
-	// RemoveTunnelConfig also removes the PSK entry
 	err := RemoveTunnelConfig(cfg, "tun-11223344")
 	if err != nil {
 		t.Fatalf("RemoveTunnelConfig() error: %v", err)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -111,13 +112,14 @@ func RateLimit(burstPerSec, maxPerMin int) func(http.Handler) http.Handler {
 // clientIP extracts the client IP from the request, preferring X-Forwarded-For.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain
-		if idx := len(xff); idx > 0 {
-			host, _, err := net.SplitHostPort(xff)
-			if err != nil {
-				return xff
+		// Take the first IP in the chain (XFF may contain multiple: "ip1, ip2, ...")
+		xffParts := strings.Split(xff, ",")
+		if len(xffParts) > 0 {
+			firstIP := strings.TrimSpace(xffParts[0])
+			if host, _, err := net.SplitHostPort(firstIP); err == nil {
+				return host
 			}
-			return host
+			return firstIP
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
