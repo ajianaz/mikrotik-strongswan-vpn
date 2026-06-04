@@ -66,6 +66,18 @@ if [[ ! -f /etc/ppp/chap-secrets ]]; then
   echo "[entrypoint] Created empty /etc/ppp/chap-secrets"
 fi
 
+# ── Bootstrap L2TP IKEv1 transport PSK ──
+L2TP_SECRET_SRC="/etc/swanctl/l2tp-secret.conf"
+if [[ -f "$L2TP_SECRET_SRC" ]]; then
+    # Extract PSK lines (skip comments) and append if not already present
+    grep -v '^#' "$L2TP_SECRET_SRC" | while IFS= read -r line; do
+        if [[ -n "$line" ]] && ! grep -qF "$line" "${SECRET_FILE}" 2>/dev/null; then
+            echo "$line" >> "${SECRET_FILE}"
+            echo "[entrypoint] Added L2TP PSK to ${SECRET_FILE}"
+        fi
+    done
+fi
+
 # ── Process xl2tpd.conf template with env vars ──
 if [[ -f /etc/xl2tpd/xl2tpd.conf ]]; then
     envsubst '${VPN_POOL_RANGE} ${VPN_POOL_LOCAL_IP}' < /etc/xl2tpd/xl2tpd.conf > /tmp/xl2tpd.conf.tmp

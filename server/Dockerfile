@@ -26,6 +26,7 @@ RUN apt-get update \
         libcharon-extra-plugins \
         strongswan-swanctl \
         strongswan-pki \
+        strongswan-plugin-eap-mschapv2 \
         xl2tpd \
         ppp \
         gettext-base \
@@ -33,6 +34,7 @@ RUN apt-get update \
         iptables \
         procps \
         binutils \
+        jq \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -62,7 +64,15 @@ RUN cd /usr/lib/ipsec/plugins \
     | xargs rm -f \
     && echo "Remaining plugins:" && ls *.so | sort
 
-# Copy dummy updown script (charon calls on SA events, default does nothing)
+# Verify eap-mschapv2 plugin exists — critical for IKEv2 EAP auth
+RUN if [ ! -f /usr/lib/ipsec/plugins/libstrongswan-eap-mschapv2.so ]; then \
+        echo "WARNING: eap-mschapv2.so not found after whitelist cleanup"; \
+        echo "Searching for plugin..."; \
+        find /usr/lib/ipsec -name '*eap*mschap*' -o -name '*mschapv2*' 2>/dev/null; \
+        dpkg -S '*eap-mschapv2*' 2>/dev/null || true; \
+    fi
+
+# Copy dummy updown script
 COPY updown.sh /usr/lib/ipsec/updown.sh
 RUN chmod +x /usr/lib/ipsec/updown.sh
 
