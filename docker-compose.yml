@@ -94,7 +94,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
     environment:
-      - DB_URL=postgres://${POSTGRES_USER:-vpnuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-vpnmgr}?sslmode=disable
+      - DB_URL=${DB_URL}
       - API_KEY=${API_KEY}
       - LISTEN=${LISTEN:-:8080}
       - VPN_CONTAINER=vpn-server
