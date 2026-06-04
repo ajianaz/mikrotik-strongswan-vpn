@@ -99,6 +99,8 @@ services:
       - VPN_SECRET_FILE=/etc/swanctl/secret
       - VPN_LOCAL_IP=${VPN_LOCAL_IP:-10.10.10.1}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
+      - L2TP_PSK=${L2TP_PSK:-vpn-l2tp-psk}
+      - SERVER_PUBLIC_IP=${SERVER_PUBLIC_IP:-}
 
     ports:
       - "${LISTEN:-8080}"

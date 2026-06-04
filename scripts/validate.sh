@@ -121,7 +121,7 @@ else
   ((fail_count++)) || true
 fi
 
-# ── Check 7: UDP 500 & 4500 available ──
+# ── Check 7: UDP 500, 4500 & 1701 available ──
 port_issues=()
 if ss -uln 2>/dev/null | grep -q ':500 ' || ss -uln 2>/dev/null | grep -q ':500$'; then
   port_issues+=("UDP 500")
@@ -129,8 +129,11 @@ fi
 if ss -uln 2>/dev/null | grep -q ':4500 ' || ss -uln 2>/dev/null | grep -q ':4500$'; then
   port_issues+=("UDP 4500")
 fi
+if ss -uln 2>/dev/null | grep -q ':1701 ' || ss -uln 2>/dev/null | grep -q ':1701$'; then
+  port_issues+=("UDP 1701")
+fi
 if [[ ${#port_issues[@]} -eq 0 ]]; then
-  pass "Ports UDP 500 & UDP 4500 are available"
+  pass "Ports UDP 500, UDP 4500 & UDP 1701 are available"
   ((pass_count++)) || true
 else
   fail "Ports already in use: ${port_issues[*]}"

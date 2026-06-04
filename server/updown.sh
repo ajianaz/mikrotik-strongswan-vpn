@@ -54,8 +54,8 @@ case "${PLUTO_VERB:-}" in
             log_msg "UP: ERROR API unreachable for ${PEER_ID} — routes NOT added"
             exit 0
         fi
-        
-        LOCAL_SUBNET=$(echo "$TUNNEL_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['data'][0]['local_subnet'])" 2>/dev/null || echo "")
+
+        LOCAL_SUBNET=$(echo "$TUNNEL_JSON" | jq -r '.[0].local_subnet // empty' 2>/dev/null || echo "")
         if [[ -z "$LOCAL_SUBNET" ]]; then
             log_msg "UP: no local_subnet found for ${PEER_ID}"
             exit 0
@@ -65,7 +65,7 @@ case "${PLUTO_VERB:-}" in
             log_msg "UP: invalid LOCAL_SUBNET, skipping: ${LOCAL_SUBNET}"
             exit 0
         fi
-        
+
         log_msg "UP: adding route ${LOCAL_SUBNET} via ${VIRTUAL_IP}"
         ip route add "${LOCAL_SUBNET}" via "${VIRTUAL_IP}" 2>/dev/null || true
         ;;
@@ -75,7 +75,7 @@ case "${PLUTO_VERB:-}" in
         if [[ -z "$PEER_ID" || -z "$VIRTUAL_IP" ]]; then
             exit 0
         fi
-        
+
         # Remove all routes via this virtual IP
         ip route | grep "via ${VIRTUAL_IP}" | while read -r line; do
             log_msg "DOWN: removing route: ${line}"

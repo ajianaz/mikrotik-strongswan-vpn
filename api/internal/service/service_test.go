@@ -78,23 +78,6 @@ func TestGeneratePassword_Unique(t *testing.T) {
 	}
 }
 
-// --- generatePSK tests ---
-
-func TestGeneratePSK_Length(t *testing.T) {
-	psk, err := generatePSK()
-	if err != nil {
-		t.Fatalf("generatePSK() error: %v", err)
-	}
-	if len(psk) != 32 {
-		t.Errorf("generatePSK() length = %d, want 32", len(psk))
-	}
-	// Must be hex
-	matched := regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(psk)
-	if !matched {
-		t.Errorf("generatePSK() = %q, want 32-char hex string", psk)
-	}
-}
-
 // --- generateUsername tests ---
 
 func TestGenerateUsername_Format(t *testing.T) {

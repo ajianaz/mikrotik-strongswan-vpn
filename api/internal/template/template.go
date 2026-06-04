@@ -21,27 +21,18 @@ type TunnelData struct {
 	AuthType    string
 	Username    string
 	Password    string
+	ServerIP    string // VPN server public IP (used by L2TP template for connect-to)
+	L2TPPSK     string // L2TP/IPSec transport mode PSK
 }
 
 var (
-	mikrotikTmpl *template.Template
-	eapRscTmpl   *template.Template
-	l2tpRscTmpl  *template.Template
+	eapRscTmpl  *template.Template
+	l2tpRscTmpl *template.Template
 )
 
 func init() {
-	mikrotikTmpl = template.Must(template.ParseFS(templatesFS, "templates/mikrotik.rsc.tmpl"))
 	eapRscTmpl = template.Must(template.ParseFS(templatesFS, "templates/mikrotik-eap.rsc.tmpl"))
 	l2tpRscTmpl = template.Must(template.ParseFS(templatesFS, "templates/mikrotik-l2tp.rsc.tmpl"))
-}
-
-// RenderMikroTikRSC renders the MikroTik RouterOS import script.
-func RenderMikroTikRSC(data TunnelData) (string, error) {
-	var buf bytes.Buffer
-	if err := mikrotikTmpl.Execute(&buf, data); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
 }
 
 // RenderMikroTikEAPRSC renders the MikroTik RouterOS script for IKEv2 EAP-MSCHAPv2 auth.
