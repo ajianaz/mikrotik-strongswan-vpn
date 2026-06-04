@@ -64,7 +64,7 @@ RUN cd /usr/lib/ipsec/plugins \
     && echo "Remaining plugins:" && ls *.so | sort
 
 # Copy dummy updown script (charon calls on SA events, default does nothing)
-COPY updown.sh /usr/lib/ipsec/updown.sh
+COPY server/updown.sh /usr/lib/ipsec/updown.sh
 RUN chmod +x /usr/lib/ipsec/updown.sh
 
 # Find charon binary and create symlink to /usr/local/bin.
