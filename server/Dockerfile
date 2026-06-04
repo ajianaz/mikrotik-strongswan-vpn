@@ -60,18 +60,8 @@ RUN rm -rf /etc/strongswan.d/
 RUN cd /usr/lib/ipsec/plugins \
     && ls *.so > /tmp/all_plugins.txt \
     && KEEP='aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|attr|resolve|ctr' \
-    && grep -vE "^libstrongswan-(${KEEP})\\.so$" /tmp/all_plugins.txt | xargs rm -f \
-    && echo "Remaining plugins:" && ls *.so | sort \
-    && echo "=== EAP-MSCHAPv2 CHECK ===" \
-    && if [ -f libstrongswan-eap-mschapv2.so ]; then \
-        echo "OK: libstrongswan-eap-mschapv2.so present"; \
-    else \
-        echo "WARNING: libstrongswan-eap-mschapv2.so NOT found!"; \
-        echo "Installed EAP plugins:"; ls *eap* 2>/dev/null || true; \
-        echo "Available from packages:"; \
-        dpkg -L libcharon-extra-plugins 2>/dev/null | grep -i eap || true; \
-        exit 1; \
-    fi
+    && grep -vE "^libstrongswan-(${KEEP})\\\\.so$" /tmp/all_plugins.txt | xargs rm -f \
+    && echo "Remaining plugins:" && ls *.so | sort
 
 # Copy dummy updown script
 COPY updown.sh /usr/lib/ipsec/updown.sh

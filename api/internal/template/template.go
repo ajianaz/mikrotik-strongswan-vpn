@@ -13,14 +13,16 @@ var templatesFS embed.FS
 
 // TunnelData holds data for template rendering.
 type TunnelData struct {
-	TunnelID    string
-	PeerIP      string
-	LocalIP     string
-	LocalSubnet string
-	PSK         string
-	AuthType    string
-	Username    string
-	Password    string
+	TunnelID        string
+	PeerIP          string
+	LocalIP         string
+	LocalSubnet     string
+	PSK             string // Per-tunnel PSK (PSK auth type)
+	AuthType        string
+	Username        string
+	Password        string
+	ServerPublicIP  string // VPN server's public IP (used by L2TP client connect-to)
+	L2TPPSK         string // Shared L2TP/IPsec PSK for transport mode (L2TP auth type)
 }
 
 var (

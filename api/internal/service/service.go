@@ -77,11 +77,13 @@ type CreateTunnelInput struct {
 
 // Service holds dependencies for the tunnel business logic.
 type Service struct {
-	pool         *pgxpool.Pool
-	swanCfg      strongswan.Config
-	mu           sync.Mutex    // #53 — protects strongSwan file operations against TOCTOU races
-	localIP      string        // VPN server gateway address (configurable via VPN_LOCAL_IP, #57)
-	encryptionKey []byte
+	pool            *pgxpool.Pool
+	swanCfg         strongswan.Config
+	mu              sync.Mutex    // #53 — protects strongSwan file operations against TOCTOU races
+	localIP         string        // VPN server gateway address (configurable via VPN_LOCAL_IP, #57)
+	serverPublicIP  string        // VPN server public IP (used by L2TP template connect-to)
+	l2tpPSK         string        // Shared L2TP/IPsec PSK for transport mode
+	encryptionKey   []byte
 }
 
 // TunnelService defines the methods used by the HTTP handler.
@@ -96,12 +98,14 @@ type TunnelService interface {
 }
 
 // NewService creates a new Service instance.
-func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte, localIP string) *Service {
+func NewService(pool *pgxpool.Pool, swanCfg strongswan.Config, encryptionKey []byte, localIP string, serverPublicIP string, l2tpPSK string) *Service {
 	return &Service{
-		pool:         pool,
-		swanCfg:      swanCfg,
-		encryptionKey: encryptionKey,
-		localIP:      localIP,
+		pool:            pool,
+		swanCfg:         swanCfg,
+		encryptionKey:   encryptionKey,
+		localIP:         localIP,
+		serverPublicIP:  serverPublicIP,
+		l2tpPSK:         l2tpPSK,
 	}
 }
 
@@ -446,14 +450,16 @@ func (s *Service) GetMikroTikRSC(ctx context.Context, tunnelID string) (string, 
 	}
 
 	data := template.TunnelData{
-		TunnelID:    t.TunnelID,
-		PeerIP:      t.PeerIP,
-		LocalIP:     s.localIP,
-		LocalSubnet: t.LocalSubnet,
-		PSK:         derefString(t.PSK),
-		AuthType:    t.AuthType,
-		Username:    derefString(t.Username),
-		Password:    password,
+		TunnelID:        t.TunnelID,
+		PeerIP:          t.PeerIP,
+		LocalIP:         s.localIP,
+		LocalSubnet:     t.LocalSubnet,
+		PSK:             derefString(t.PSK),
+		AuthType:        t.AuthType,
+		Username:        derefString(t.Username),
+		Password:        password,
+		ServerPublicIP:  s.serverPublicIP,
+		L2TPPSK:         s.l2tpPSK,
 	}
 
 	var rendered string
