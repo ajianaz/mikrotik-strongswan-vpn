@@ -56,6 +56,8 @@ services:
     environment:
       - STRONGSWAN_LOGLEVEL=${STRONGSWAN_LOGLEVEL:-3}
       - API_KEY=${API_KEY}
+      - VPN_POOL_RANGE=${VPN_POOL_RANGE:-10.10.10.2-10.10.10.254}
+      - VPN_POOL_LOCAL_IP=${VPN_POOL_LOCAL_IP:-10.10.10.1}
 
     volumes:
       # Shared swanctl config — vpn-manager writes here, vpn-server reads here

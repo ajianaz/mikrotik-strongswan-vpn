@@ -86,18 +86,24 @@ RUN CHARON_BIN="" \
     done
 
 # Create swanctl directories
-RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki
+RUN mkdir -p /etc/swanctl/conf.d /etc/swanctl/pki /etc/xl2tpd
 
 # Copy entrypoint (bootstraps config structure on first start + starts charon)
-COPY entrypoint.sh /entrypoint.sh
+COPY server/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Copy charon daemon config (read-only)
-COPY strongswan.conf /etc/strongswan.conf
+COPY server/strongswan.conf /etc/strongswan.conf
 
 # Copy xl2tpd + pppd config (read-only)
-COPY xl2tpd.conf /etc/xl2tpd/xl2tpd.conf
-COPY options.xl2tpd /etc/ppp/options.xl2tpd
+COPY server/xl2tpd.conf /etc/xl2tpd/xl2tpd.conf
+COPY server/options.xl2tpd /etc/ppp/options.xl2tpd
+
+# Copy L2TP/IPSec bootstrap files into image.
+# On first start (empty named volume), entrypoint uses these to bootstrap.
+# vpn-manager may overwrite conf.d/ configs at runtime via API.
+COPY config/l2tp-transport.conf /etc/swanctl/conf.d/l2tp-transport.conf
+COPY config/l2tp-secret.conf /etc/swanctl/conf.d/l2tp-secret.conf
 
 # Expose IKEv2 ports (documented — actual binding via network_mode: host)
 # UDP 500  = IKE (key exchange)

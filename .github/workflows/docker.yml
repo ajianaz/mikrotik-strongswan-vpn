@@ -100,7 +100,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
       - uses: docker/build-push-action@v6
         with:
-          context: ./server
+          context: .
           file: ./server/Dockerfile
           platforms: linux/arm64
           push: ${{ github.event_name != 'pull_request' }}

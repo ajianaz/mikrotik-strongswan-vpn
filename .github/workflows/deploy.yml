@@ -188,17 +188,11 @@ jobs:
             fi
 
             # Check strongSwan loaded connections
-            CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" | tr -d '\n')
-            SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" | tr -d '\n')
-            CONN_COUNT=${CONN_COUNT:-0}
-            SAS_COUNT=${SAS_COUNT:-0}
+            CONN_COUNT=$(docker exec vpn-server swanctl --list-conns 2>/dev/null | grep -c "^[^ ]" || echo 0)
+            SAS_COUNT=$(docker exec vpn-server swanctl --list-sas 2>/dev/null | grep -c "^[^ ]" || echo 0)
+            CONN_COUNT=$(echo "$CONN_COUNT" | tr -d '[:space:]')
+            SAS_COUNT=$(echo "$SAS_COUNT" | tr -d '[:space:]')
             echo "  📊 Connections: ${CONN_COUNT} loaded, ${SAS_COUNT} active SAs"
-
-            # Check EAP-MSCHAPv2 plugin availability
-            EAP_CHECK=$(docker exec vpn-server swanctl --list-plugins 2>/dev/null | grep -c "eap-mschapv2" || echo "0")
-            if [ "$EAP_CHECK" -ge 1 ]; then
-              echo "  ✅ EAP-MSCHAPv2 plugin loaded"
-            fi
 
             # Check xl2tpd
             L2TP_CHECK=$(docker exec vpn-server pgrep -c xl2tpd 2>/dev/null || echo "0")
