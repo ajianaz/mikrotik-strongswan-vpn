@@ -47,7 +47,7 @@ http:
     vpn-manager:
       loadBalancer:
         servers:
-          - url: "http://127.0.0.1:8080"  # ← VPN Manager API listen address
+          - url: "http://127.0.0.1:22140"  # ← VPN Manager API listen address
 
   # -----------------------------------------------------------------------
   # TLS options — enforce modern cipher suites
