@@ -55,13 +55,13 @@ RUN rm -rf /etc/strongswan.d/
 # Keep (26): aes sha1 sha2 sha384 sha512 md5 mgf1 random nonce hmac
 #            gmp fips-prf rc2 pubkey pkcs1 x509 kernel-netlink
 #            socket-default vici updown swanctl
-#            eap eap-identity eap-mschapv2 xauth-generic attr resolve
+#            eap eap-identity eap-mschapv2 attr resolve
 #            ──────────────────────────────────────────
-#            Last 6 added for EAP-MSCHAPv2 auth (IKEv2 EAP) + xauth-generic.
+#            Last 5 added for EAP-MSCHAPv2 auth (IKEv2 EAP).
 #            Safe on ARM: crash was from loading 50+ plugins, not from these.
 RUN cd /usr/lib/ipsec/plugins \
     && ls *.so | grep -v -E \
-        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|xauth-generic|attr|resolve)\\.so$' \
+        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|attr|resolve)\\.so$' \
     | xargs rm -f \
     && echo "Remaining plugins:" && ls *.so | sort
 
