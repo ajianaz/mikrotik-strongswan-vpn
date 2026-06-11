@@ -14,16 +14,18 @@ ENV DEBIAN_FRONTEND=noninteractive
 # causing: "unmet dependency: HASH_SHA1" → "initialization failed".
 ENV LD_LIBRARY_PATH=/usr/lib/ipsec
 
-# Install strongSwan — core + extra plugins (EAP-MSCHAPv2).
-# libcharon-extra-plugins provides eap.so and eap-mschapv2.so needed for
-# IKEv2 EAP auth. ARM segfault was caused by loading ALL 50+ plugins;
-# the whitelist below (line 59) keeps only the safe subset.
+# Install strongSwan — core + extra + extauth plugins.
+# - libcharon-extra-plugins: eap-identity, eap-md5, eap-tls, eap-ttls, etc.
+# - libcharon-extauth-plugins: eap-mschapv2 (IKEv2 EAP auth), xauth-generic
+# ARM segfault was caused by loading ALL 50+ plugins;
+# the whitelist below keeps only the safe subset.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libstrongswan \
         strongswan-charon \
         strongswan-libcharon \
         libcharon-extra-plugins \
+        libcharon-extauth-plugins \
         strongswan-swanctl \
         strongswan-pki \
         xl2tpd \
@@ -53,13 +55,13 @@ RUN rm -rf /etc/strongswan.d/
 # Keep (26): aes sha1 sha2 sha384 sha512 md5 mgf1 random nonce hmac
 #            gmp fips-prf rc2 pubkey pkcs1 x509 kernel-netlink
 #            socket-default vici updown swanctl
-#            eap eap-identity eap-mschapv2 attr resolve
+#            eap eap-identity eap-mschapv2 xauth-generic attr resolve
 #            ──────────────────────────────────────────
-#            Last 5 added for EAP-MSCHAPv2 auth (IKEv2 EAP).
+#            Last 6 added for EAP-MSCHAPv2 auth (IKEv2 EAP) + xauth-generic.
 #            Safe on ARM: crash was from loading 50+ plugins, not from these.
 RUN cd /usr/lib/ipsec/plugins \
     && ls *.so | grep -v -E \
-        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|attr|resolve)\.so$' \
+        '^libstrongswan-(aes|sha1|sha2|sha384|sha512|md5|mgf1|random|nonce|hmac|gmp|fips-prf|rc2|pubkey|pkcs1|x509|kernel-netlink|socket-default|vici|updown|swanctl|eap|eap-identity|eap-mschapv2|xauth-generic|attr|resolve)\\.so$' \
     | xargs rm -f \
     && echo "Remaining plugins:" && ls *.so | sort
 
